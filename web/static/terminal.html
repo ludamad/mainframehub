@@ -23,6 +23,8 @@
       justify-content: space-between;
       align-items: center;
       border-bottom: 2px solid #ffffff;
+      flex-wrap: wrap;
+      gap: 8px;
     }
     #session-info {
       display: flex;
@@ -91,11 +93,22 @@
       flex-direction: column;
       height: 100vh;
       width: 100vw;
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
     }
     #terminal {
       flex: 1;
       padding: 10px;
       overflow: auto;
+    }
+    /* Viewport height adjustment for mobile keyboard */
+    @supports (-webkit-touch-callout: none) {
+      #terminal-container {
+        height: 100dvh;
+      }
     }
     .back-link {
       color: #ffffff;
@@ -120,6 +133,9 @@
     }
     .terminal-btn:hover {
       background: rgba(255, 255, 255, 0.1);
+    }
+    .mobile-enter-btn {
+      display: none;
     }
     /* Mobile Paste Bar */
     .mobile-paste-bar {
@@ -154,7 +170,43 @@
         display: block;
       }
       #terminal {
+        padding: 5px;
         padding-bottom: 60px;
+      }
+      #header {
+        padding: 8px 12px;
+        flex-shrink: 0;
+      }
+      #session-info {
+        flex: 1;
+        min-width: 100%;
+        order: 1;
+      }
+      #session-name {
+        font-size: 12px;
+      }
+      #branch-status {
+        font-size: 10px;
+      }
+      #header > div:last-child {
+        flex: 1;
+        width: 100%;
+        order: 2;
+        justify-content: space-between;
+      }
+      .terminal-btn {
+        padding: 8px 12px;
+        font-size: 11px;
+        flex: 1;
+      }
+      .mobile-enter-btn {
+        display: block;
+      }
+      #status {
+        padding: 8px 12px;
+        font-size: 11px;
+        flex: 1;
+        text-align: center;
       }
     }
   </style>
@@ -170,6 +222,7 @@
         </div>
       </div>
       <div style="display: flex; gap: 8px; align-items: center;">
+        <button class="terminal-btn mobile-enter-btn" onclick="sendEnter()">↵</button>
         <button class="terminal-btn" onclick="sendCtrlC()">Ctrl+C</button>
         <button class="terminal-btn" onclick="sendEscape()">ESC</button>
         <button class="terminal-btn" onclick="showSettings()" title="Settings">⚙</button>
@@ -210,7 +263,11 @@
         <div style="margin-bottom: 20px;">
           <label style="display: block; color: #ffffff; font-size: 0.85em; margin-bottom: 8px; letter-spacing: 1px;">TEXT TO PASTE</label>
           <textarea id="paste-text" rows="6" placeholder="Enter or paste your text here..." style="width: 100%; background: transparent; border: 1px solid #ffffff; color: #ffffff; font-family: 'Cascadia Code', 'Courier New', monospace; font-size: 0.95em; padding: 10px; outline: none; resize: vertical;"></textarea>
-          <div style="color: #cccccc; font-size: 0.8em; margin-top: 5px;">Text will be sent to the terminal followed by Enter • Press Ctrl+Enter to paste • ESC to cancel</div>
+          <div style="display: flex; gap: 8px; align-items: center; margin-top: 8px;">
+            <input type="checkbox" id="paste-send-enter" checked style="width: auto;">
+            <label for="paste-send-enter" style="color: #cccccc; font-size: 0.8em; margin: 0; letter-spacing: 0.5px;">Send Enter after paste</label>
+          </div>
+          <div style="color: #cccccc; font-size: 0.8em; margin-top: 5px;">Press Ctrl+Enter to paste • ESC to cancel</div>
         </div>
         <div style="display: flex; gap: 10px; margin-top: 25px;">
           <button type="button" onclick="hidePasteModal()" style="flex: 1; background: transparent; border: 1px solid #ffffff; color: #ffffff; font-family: inherit; font-size: 0.9em; padding: 10px 20px; cursor: pointer; letter-spacing: 1px;">CANCEL</button>
@@ -304,10 +361,13 @@
       throw new Error('GitHub token required');
     }
 
+    // Detect mobile device
+    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) || window.innerWidth <= 768;
+
     // Initialize xterm.js with black & white theme
     const term = new Terminal({
       cursorBlink: true,
-      fontSize: 14,
+      fontSize: isMobile ? 12 : 14,
       fontFamily: 'Cascadia Code, Courier New, monospace',
       theme: {
         background: '#000000',
@@ -318,7 +378,8 @@
         white: '#ffffff',
         brightWhite: '#ffffff'
       },
-      scrollback: 10000
+      scrollback: 10000,
+      allowProposedApi: true
     });
 
     const fitAddon = new FitAddon.FitAddon();
@@ -331,16 +392,37 @@
     const ws = new WebSocket(`${protocol}//${window.location.host}/terminal?session=${sessionId}&token=${encodeURIComponent(githubToken)}&cols=${term.cols}&rows=${term.rows}`);
 
     // Dynamic resize on window change
+    let resizeTimeout;
     window.addEventListener('resize', () => {
-      fitAddon.fit();
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({
-          type: 'resize',
-          cols: term.cols,
-          rows: term.rows
-        }));
-      }
+      clearTimeout(resizeTimeout);
+      resizeTimeout = setTimeout(() => {
+        fitAddon.fit();
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({
+            type: 'resize',
+            cols: term.cols,
+            rows: term.rows
+          }));
+        }
+      }, 100);
     });
+
+    // Handle mobile keyboard visibility
+    if (isMobile) {
+      window.visualViewport?.addEventListener('resize', () => {
+        clearTimeout(resizeTimeout);
+        resizeTimeout = setTimeout(() => {
+          fitAddon.fit();
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({
+              type: 'resize',
+              cols: term.cols,
+              rows: term.rows
+            }));
+          }
+        }, 100);
+      });
+    }
 
     // Focus terminal
     term.focus();
@@ -397,6 +479,14 @@
       ws.close();
     });
 
+    // Send Enter key
+    function sendEnter() {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'input', data: '\r' }));
+        term.focus();
+      }
+    }
+
     // Send Escape key
     function sendEscape() {
       if (ws.readyState === WebSocket.OPEN) {
@@ -430,9 +520,11 @@
     function submitPaste(event) {
       event.preventDefault();
       const text = document.getElementById('paste-text').value;
+      const sendEnter = document.getElementById('paste-send-enter').checked;
       if (text && ws.readyState === WebSocket.OPEN) {
-        // Send the text followed by Enter
-        ws.send(JSON.stringify({ type: 'input', data: text + '\n' }));
+        // Send the text, optionally followed by Enter
+        const dataToSend = sendEnter ? text + '\r' : text;
+        ws.send(JSON.stringify({ type: 'input', data: dataToSend }));
         hidePasteModal();
       }
     }
