@@ -1,0 +1,288 @@
+import { test, expect, Page } from '@playwright/test';
+import { createWebServer } from '../server/index.js';
+import { TmuxService } from '../../src/services/tmux.js';
+import { existsSync, rmSync, mkdirSync } from 'fs';
+import { join } from 'path';
+import { tmpdir } from 'os';
+
+let server: any;
+let tmux: TmuxService;
+let testClonesDir: string;
+
+test.beforeAll(async () => {
+  // Setup test environment
+  testClonesDir = join(tmpdir(), 'mfh-web-test-clones');
+  if (existsSync(testClonesDir)) {
+    rmSync(testClonesDir, { recursive: true, force: true });
+  }
+  mkdirSync(testClonesDir, { recursive: true });
+
+  // Initialize services
+  tmux = new TmuxService();
+
+  // Create test config
+  const testConfig = {
+    repo: 'https://github.com/test/repo',
+    repoName: 'test/repo',
+    clonesDir: testClonesDir,
+    baseBranch: 'main',
+    sessionPrefix: 'mfh-test-',
+    guidelines: {
+      branchFormat: 'test/TYPE/description',
+      commitFormat: 'test: description'
+    }
+  };
+
+  // Write test config
+  const configPath = join(tmpdir(), 'mfh-test-config.json');
+  const { writeFileSync } = await import('fs');
+  writeFileSync(configPath, JSON.stringify(testConfig, null, 2));
+
+  // Start server with mock writes
+  server = createWebServer({
+    port: 3001,
+    mockWrites: true,
+    configPath
+  });
+
+  // Wait for server to start
+  await new Promise(resolve => setTimeout(resolve, 1000));
+});
+
+test.afterAll(async () => {
+  // Cleanup all test sessions
+  const sessions = await tmux.list('mfh-test-');
+  for (const session of sessions) {
+    await tmux.kill(session.id);
+  }
+
+  // Cleanup clones directory
+  if (existsSync(testClonesDir)) {
+    rmSync(testClonesDir, { recursive: true, force: true });
+  }
+
+  // Stop server
+  if (server?.server) {
+    await new Promise((resolve) => {
+      server.server.close(resolve);
+    });
+  }
+});
+
+test.describe('MainframeHub Web UI', () => {
+  test('should load the homepage', async ({ page }) => {
+    await page.goto('http://localhost:3001');
+
+    // Check header
+    await expect(page.locator('.logo')).toContainText('MainframeHub');
+
+    // Check buttons
+    await expect(page.locator('#btn-new-pr')).toBeVisible();
+    await expect(page.locator('#btn-setup-pr')).toBeVisible();
+    await expect(page.locator('#btn-refresh')).toBeVisible();
+  });
+
+  test('should show empty sessions list initially', async ({ page }) => {
+    await page.goto('http://localhost:3001');
+
+    // Wait for loading to complete
+    await page.waitForTimeout(500);
+
+    // Should show "no sessions" message
+    await expect(page.locator('.sessions-list')).toContainText('No sessions found');
+  });
+
+  test('should open new PR modal', async ({ page }) => {
+    await page.goto('http://localhost:3001');
+
+    // Click new PR button
+    await page.click('#btn-new-pr');
+
+    // Modal should be visible
+    await expect(page.locator('#modal-new-pr')).toBeVisible();
+    await expect(page.locator('#modal-new-pr h2')).toContainText('Create New PR');
+
+    // Close modal
+    await page.click('#btn-cancel-new-pr');
+    await expect(page.locator('#modal-new-pr')).not.toBeVisible();
+  });
+
+  test('should open setup PR modal', async ({ page }) => {
+    await page.goto('http://localhost:3001');
+
+    // Click setup button
+    await page.click('#btn-setup-pr');
+
+    // Modal should be visible
+    await expect(page.locator('#modal-setup-pr')).toBeVisible();
+    await expect(page.locator('#modal-setup-pr h2')).toContainText('Setup Existing PR');
+
+    // Close modal
+    await page.click('#btn-cancel-setup-pr');
+    await expect(page.locator('#modal-setup-pr')).not.toBeVisible();
+  });
+
+  test('should validate new PR form', async ({ page }) => {
+    await page.goto('http://localhost:3001');
+
+    // Open modal
+    await page.click('#btn-new-pr');
+
+    // Try to submit without prompt
+    await page.click('button[type="submit"]');
+
+    // HTML5 validation should prevent submission
+    const promptInput = page.locator('#input-prompt');
+    const validationMessage = await promptInput.evaluate((el: any) => el.validationMessage);
+    expect(validationMessage).toBeTruthy();
+  });
+
+  test('should refresh sessions list', async ({ page }) => {
+    await page.goto('http://localhost:3001');
+
+    // Click refresh
+    await page.click('#btn-refresh');
+
+    // Loading indicator should appear briefly
+    await page.waitForTimeout(200);
+
+    // Sessions should be loaded
+    await expect(page.locator('.sessions-list')).toBeVisible();
+  });
+
+  test('should show health status', async ({ page }) => {
+    const response = await page.request.get('http://localhost:3001/health');
+    const data = await response.json();
+
+    expect(response.ok()).toBe(true);
+    expect(data.status).toBe('ok');
+    expect(data.mockWrites).toBe(true);
+  });
+
+  test('should handle window resize', async ({ page }) => {
+    await page.goto('http://localhost:3001');
+
+    // Resize to mobile
+    await page.setViewportSize({ width: 375, height: 667 });
+
+    // Check that header buttons are still visible
+    await expect(page.locator('#btn-new-pr')).toBeVisible();
+
+    // Resize back to desktop
+    await page.setViewportSize({ width: 1280, height: 720 });
+
+    await expect(page.locator('.sessions-view')).toBeVisible();
+  });
+
+  test('should show input modal for terminal', async ({ page }) => {
+    await page.goto('http://localhost:3001');
+
+    // We can't easily test terminal without a real session,
+    // but we can check that the modal structure exists
+    const inputModal = page.locator('#modal-input');
+    expect(await inputModal.count()).toBe(1);
+  });
+});
+
+test.describe('MainframeHub Web UI with Mock Session', () => {
+  let testSessionId: string;
+
+  test.beforeEach(async () => {
+    // Create a test session for terminal tests
+    testSessionId = `mfh-test-${Date.now()}`;
+
+    // Create a minimal clone directory
+    const clonePath = join(testClonesDir, `pr-${Date.now()}`);
+    mkdirSync(clonePath, { recursive: true });
+
+    // Initialize git repo using execSync
+    const { execSync } = await import('child_process');
+    const { writeFileSync: fsWriteFileSync } = await import('fs');
+    execSync('git init', { cwd: clonePath, stdio: 'pipe' });
+    execSync('git config user.name "Test User"', { cwd: clonePath, stdio: 'pipe' });
+    execSync('git config user.email "test@example.com"', { cwd: clonePath, stdio: 'pipe' });
+    execSync('git remote add origin https://github.com/test/repo', { cwd: clonePath, stdio: 'pipe' });
+
+    // Create initial commit (required for git to work properly)
+    fsWriteFileSync(join(clonePath, 'README.md'), '# Test repo\n');
+    execSync('git add README.md', { cwd: clonePath, stdio: 'pipe' });
+    execSync('git commit -m "Initial commit"', { cwd: clonePath, stdio: 'pipe' });
+
+    // Create tmux session
+    await tmux.create({
+      id: testSessionId,
+      workingDir: clonePath,
+      command: 'bash'
+    });
+  });
+
+  test.afterEach(async () => {
+    // Cleanup test session
+    const exists = await tmux.exists(testSessionId);
+    if (exists) {
+      await tmux.kill(testSessionId);
+    }
+  });
+
+  test('should discover test session', async ({ page }) => {
+    await page.goto('http://localhost:3001');
+
+    // Wait for discovery
+    await page.waitForTimeout(1000);
+
+    // Should show at least one session
+    const sessionCards = page.locator('.session-card');
+    const count = await sessionCards.count();
+    expect(count).toBeGreaterThan(0);
+
+    // Should show our test session
+    await expect(page.locator(`.session-id:has-text("${testSessionId}")`)).toBeVisible();
+  });
+
+  test('should open terminal view', async ({ page }) => {
+    await page.goto('http://localhost:3001');
+
+    // Wait for discovery
+    await page.waitForTimeout(1000);
+
+    // Click on session card
+    await page.click(`.session-card:has-text("${testSessionId}")`);
+
+    // Terminal view should be visible
+    await expect(page.locator('#terminal-view')).toBeVisible();
+    await expect(page.locator('#terminal-title')).toContainText(testSessionId);
+
+    // xterm container should be present
+    await expect(page.locator('#terminal-container')).toBeVisible();
+
+    // Close terminal
+    await page.click('#btn-close-terminal');
+
+    // Should return to sessions view
+    await expect(page.locator('#sessions-view')).toBeVisible();
+    await expect(page.locator('#terminal-view')).not.toBeVisible();
+  });
+
+  test('should show input modal in terminal view', async ({ page }) => {
+    await page.goto('http://localhost:3001');
+
+    // Wait for discovery
+    await page.waitForTimeout(1000);
+
+    // Open terminal
+    await page.click(`.session-card:has-text("${testSessionId}")`);
+
+    // Wait for terminal to load
+    await page.waitForTimeout(500);
+
+    // Click input modal button
+    await page.click('#btn-input-modal');
+
+    // Modal should be visible
+    await expect(page.locator('#modal-input')).toBeVisible();
+
+    // Close modal
+    await page.click('#btn-cancel-input');
+    await expect(page.locator('#modal-input')).not.toBeVisible();
+  });
+});

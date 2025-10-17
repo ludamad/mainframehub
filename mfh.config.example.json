@@ -1,0 +1,12 @@
+{
+  "repo": "https://github.com/AztecProtocol/aztec-packages",
+  "repoName": "AztecProtocol/aztec-packages",
+  "referenceGitPath": "/mnt/user-data/adam/aztec-packages",
+  "clonesDir": "./clones",
+  "baseBranch": "next",
+  "sessionPrefix": "mfh-",
+  "guidelines": {
+    "branchFormat": "ad/TYPE/description (e.g., ad/feat/add-dark-mode, ad/fix/null-check)",
+    "commitFormat": "type: description"
+  }
+}

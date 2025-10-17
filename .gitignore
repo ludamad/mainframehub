@@ -1,0 +1,11 @@
+node_modules/
+dist/
+config.json
+mfh.config.json
+clones/
+memory/
+*.log
+.DS_Store
+.env
+test-results/
+playwright-report/

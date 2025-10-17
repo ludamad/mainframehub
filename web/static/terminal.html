@@ -1,0 +1,501 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MAINFRAMEHUB Terminal</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css" />
+  <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #000000;
+      font-family: 'Cascadia Code', 'Courier New', monospace;
+      overflow: hidden;
+      color: #ffffff;
+    }
+    #header {
+      background: #000000;
+      color: #ffffff;
+      padding: 12px 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 2px solid #ffffff;
+    }
+    #session-info {
+      display: flex;
+      gap: 20px;
+      align-items: center;
+    }
+    #session-name {
+      font-size: 14px;
+      font-weight: bold;
+      letter-spacing: 1px;
+      color: #ffffff;
+    }
+    #branch-status {
+      font-size: 12px;
+      color: #cccccc;
+      letter-spacing: 0.5px;
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+    .status-indicator {
+      display: inline-block;
+      padding: 2px 8px;
+      border: 1px solid #ffffff;
+      font-size: 11px;
+      letter-spacing: 1px;
+    }
+    .status-indicator.in-sync {
+      color: #ffffff;
+      border-color: #ffffff;
+    }
+    .status-indicator.ahead {
+      color: #ffffff;
+      border-color: #ffffff;
+      background: rgba(255, 255, 255, 0.1);
+    }
+    .status-indicator.behind {
+      color: #ffffff;
+      border-color: #ffffff;
+      background: rgba(255, 255, 255, 0.1);
+    }
+    .status-indicator.diverged {
+      color: #ffffff;
+      border-color: #ffffff;
+      background: rgba(255, 255, 255, 0.15);
+    }
+    #status {
+      padding: 5px 10px;
+      background: transparent;
+      color: #cccccc;
+      border: 1px solid #ffffff;
+      font-size: 12px;
+      letter-spacing: 1px;
+    }
+    #status.connected {
+      color: #ffffff;
+      border-color: #ffffff;
+    }
+    #status.error {
+      color: #ffffff;
+      border-color: #ffffff;
+      background: rgba(255, 255, 255, 0.1);
+    }
+    #terminal-container {
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      width: 100vw;
+    }
+    #terminal {
+      flex: 1;
+      padding: 10px;
+      overflow: auto;
+    }
+    .back-link {
+      color: #ffffff;
+      text-decoration: none;
+      font-size: 14px;
+      letter-spacing: 1px;
+    }
+    .back-link:hover {
+      text-decoration: underline;
+    }
+    .terminal-btn {
+      padding: 6px 12px;
+      background: transparent;
+      border: 1px solid #ffffff;
+      color: #ffffff;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 500;
+      letter-spacing: 1px;
+      transition: all 0.2s;
+      font-family: inherit;
+    }
+    .terminal-btn:hover {
+      background: rgba(255, 255, 255, 0.1);
+    }
+    /* Mobile Paste Bar */
+    .mobile-paste-bar {
+      display: none;
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      background: #000000;
+      border-top: 2px solid #ffffff;
+      padding: 12px;
+      z-index: 1000;
+    }
+    .mobile-paste-btn {
+      width: 100%;
+      padding: 14px;
+      background: rgba(255, 255, 255, 0.1);
+      border: 1px solid #ffffff;
+      color: #ffffff;
+      font-size: 14px;
+      font-weight: bold;
+      letter-spacing: 1px;
+      cursor: pointer;
+      font-family: inherit;
+      transition: all 0.2s;
+    }
+    .mobile-paste-btn:active {
+      background: rgba(255, 255, 255, 0.2);
+    }
+    @media (max-width: 768px) {
+      .mobile-paste-bar {
+        display: block;
+      }
+      #terminal {
+        padding-bottom: 60px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div id="terminal-container">
+    <div id="header">
+      <div id="session-info">
+        <a href="/" class="back-link">← BACK</a>
+        <div>
+          <div id="session-name">Loading...</div>
+          <div id="branch-status"></div>
+        </div>
+      </div>
+      <div style="display: flex; gap: 8px; align-items: center;">
+        <button class="terminal-btn" onclick="sendCtrlC()">Ctrl+C</button>
+        <button class="terminal-btn" onclick="sendEscape()">ESC</button>
+        <button class="terminal-btn" onclick="showSettings()" title="Settings">⚙</button>
+        <div id="status">CONNECTING...</div>
+      </div>
+    </div>
+    <div id="terminal"></div>
+  </div>
+
+  <!-- Mobile Paste Bar -->
+  <div class="mobile-paste-bar">
+    <button class="mobile-paste-btn" onclick="openPastePrompt()">PASTE TEXT</button>
+  </div>
+
+  <!-- Token Modal -->
+  <div id="token-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.9); z-index: 2000; align-items: center; justify-content: center;">
+    <div style="background: #000000; border: 2px solid #ffffff; padding: 30px; max-width: 500px; width: 90%;">
+      <div style="color: #ffffff; font-size: 1.2em; font-weight: bold; letter-spacing: 1px; margin-bottom: 25px; text-align: center;">GITHUB TOKEN REQUIRED</div>
+      <div id="token-error" style="background: rgba(255, 255, 255, 0.1); border: 1px solid #ffffff; padding: 12px; margin-bottom: 15px; color: #ffffff; font-size: 0.9em; letter-spacing: 0.5px; text-align: center; display: none;"></div>
+      <form id="token-form" onsubmit="saveToken(event); return false;">
+        <div style="margin-bottom: 20px;">
+          <label style="display: block; color: #ffffff; font-size: 0.85em; margin-bottom: 8px; letter-spacing: 1px;">TOKEN</label>
+          <input type="password" id="github-token" required placeholder="ghp_xxxxx" style="width: 100%; background: transparent; border: 1px solid #ffffff; color: #ffffff; font-family: inherit; font-size: 1em; padding: 10px; outline: none;">
+          <div style="color: #cccccc; font-size: 0.8em; margin-top: 5px;">github.com/settings/tokens | Scopes: repo, read:org</div>
+        </div>
+        <div style="display: flex; gap: 10px; margin-top: 25px;">
+          <button type="submit" style="flex: 1; background: rgba(255, 255, 255, 0.1); border: 1px solid #ffffff; color: #ffffff; font-family: inherit; font-size: 0.9em; padding: 10px 20px; cursor: pointer; letter-spacing: 1px;">SAVE TOKEN</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Paste Modal -->
+  <div id="paste-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.9); z-index: 2000; align-items: center; justify-content: center;">
+    <div style="background: #000000; border: 2px solid #ffffff; padding: 30px; max-width: 600px; width: 90%;">
+      <div style="color: #ffffff; font-size: 1.2em; font-weight: bold; letter-spacing: 1px; margin-bottom: 25px; text-align: center;">PASTE TEXT</div>
+      <form id="paste-form" onsubmit="submitPaste(event); return false;">
+        <div style="margin-bottom: 20px;">
+          <label style="display: block; color: #ffffff; font-size: 0.85em; margin-bottom: 8px; letter-spacing: 1px;">TEXT TO PASTE</label>
+          <textarea id="paste-text" rows="6" placeholder="Enter or paste your text here..." style="width: 100%; background: transparent; border: 1px solid #ffffff; color: #ffffff; font-family: 'Cascadia Code', 'Courier New', monospace; font-size: 0.95em; padding: 10px; outline: none; resize: vertical;"></textarea>
+          <div style="color: #cccccc; font-size: 0.8em; margin-top: 5px;">Text will be sent to the terminal followed by Enter • Press Ctrl+Enter to paste • ESC to cancel</div>
+        </div>
+        <div style="display: flex; gap: 10px; margin-top: 25px;">
+          <button type="button" onclick="hidePasteModal()" style="flex: 1; background: transparent; border: 1px solid #ffffff; color: #ffffff; font-family: inherit; font-size: 0.9em; padding: 10px 20px; cursor: pointer; letter-spacing: 1px;">CANCEL</button>
+          <button type="submit" style="flex: 1; background: rgba(255, 255, 255, 0.1); border: 1px solid #ffffff; color: #ffffff; font-family: inherit; font-size: 0.9em; padding: 10px 20px; cursor: pointer; letter-spacing: 1px;">PASTE</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    const params = new URLSearchParams(window.location.search);
+    const sessionId = params.get('session');
+    const status = document.getElementById('status');
+    const sessionName = document.getElementById('session-name');
+    let githubToken = localStorage.getItem('githubToken') || '';
+
+    if (!sessionId) {
+      status.textContent = 'ERROR: NO SESSION';
+      status.className = 'error';
+      throw new Error('Session ID required');
+    }
+
+    sessionName.textContent = sessionId;
+
+    // Token management functions
+    function showTokenModal() {
+      const modal = document.getElementById('token-modal');
+      modal.style.display = 'flex';
+      document.getElementById('github-token').focus();
+    }
+
+    function hideTokenModal() {
+      const modal = document.getElementById('token-modal');
+      modal.style.display = 'none';
+    }
+
+    function showSettings() {
+      showTokenModal();
+    }
+
+    async function saveToken(event) {
+      event.preventDefault();
+      const tokenInput = document.getElementById('github-token');
+      const errorDiv = document.getElementById('token-error');
+      const token = tokenInput.value.trim();
+
+      if (!token) {
+        errorDiv.textContent = 'Token is required';
+        errorDiv.style.display = 'block';
+        return;
+      }
+
+      try {
+        // Validate token with server
+        const response = await fetch('/api/auth/validate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token })
+        });
+
+        const data = await response.json();
+
+        if (!data.valid || !data.hasWriteAccess) {
+          errorDiv.textContent = 'Invalid token or insufficient permissions (requires repo write access)';
+          errorDiv.style.display = 'block';
+          return;
+        }
+
+        // Save token
+        localStorage.setItem('githubToken', token);
+        githubToken = token;
+
+        // Clear error and hide modal
+        errorDiv.style.display = 'none';
+        tokenInput.value = '';
+        hideTokenModal();
+
+        // Reload page to reconnect with new token
+        window.location.reload();
+      } catch (error) {
+        errorDiv.textContent = `Error: ${error.message}`;
+        errorDiv.style.display = 'block';
+      }
+    }
+
+    // Check for token before initializing terminal
+    if (!githubToken) {
+      status.textContent = 'AUTH REQUIRED';
+      status.className = 'error';
+      showTokenModal();
+      throw new Error('GitHub token required');
+    }
+
+    // Initialize xterm.js with black & white theme
+    const term = new Terminal({
+      cursorBlink: true,
+      fontSize: 14,
+      fontFamily: 'Cascadia Code, Courier New, monospace',
+      theme: {
+        background: '#000000',
+        foreground: '#ffffff',
+        cursor: '#ffffff',
+        black: '#000000',
+        brightBlack: '#cccccc',
+        white: '#ffffff',
+        brightWhite: '#ffffff'
+      },
+      scrollback: 10000
+    });
+
+    const fitAddon = new FitAddon.FitAddon();
+    term.loadAddon(fitAddon);
+    term.open(document.getElementById('terminal'));
+    fitAddon.fit();
+
+    // Connect WebSocket with terminal size and token
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const ws = new WebSocket(`${protocol}//${window.location.host}/terminal?session=${sessionId}&token=${encodeURIComponent(githubToken)}&cols=${term.cols}&rows=${term.rows}`);
+
+    // Dynamic resize on window change
+    window.addEventListener('resize', () => {
+      fitAddon.fit();
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({
+          type: 'resize',
+          cols: term.cols,
+          rows: term.rows
+        }));
+      }
+    });
+
+    // Focus terminal
+    term.focus();
+
+    ws.onopen = () => {
+      status.textContent = 'CONNECTED';
+      status.className = 'connected';
+    };
+
+    ws.onmessage = (event) => {
+      const message = JSON.parse(event.data);
+
+      switch (message.type) {
+        case 'output':
+          term.write(message.data);
+          break;
+        case 'exit':
+          term.writeln(`\r\n\r\n[SESSION EXITED: ${message.exitCode}]`);
+          status.textContent = 'DISCONNECTED';
+          status.className = 'error';
+          ws.close();
+          break;
+        case 'ready':
+          term.onData((data) => {
+            ws.send(JSON.stringify({ type: 'input', data }));
+          });
+          break;
+      }
+    };
+
+    // Handle terminal resize
+    term.onResize(({ cols, rows }) => {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'resize', cols, rows }));
+      }
+    });
+
+    ws.onerror = (error) => {
+      console.error('WebSocket error:', error);
+      status.textContent = 'CONNECTION ERROR';
+      status.className = 'error';
+    };
+
+    ws.onclose = () => {
+      if (status.className !== 'error') {
+        term.writeln('\r\n\r\n[CONNECTION CLOSED]');
+        status.textContent = 'DISCONNECTED';
+        status.className = 'error';
+      }
+    };
+
+    // Cleanup on page unload
+    window.addEventListener('beforeunload', () => {
+      ws.close();
+    });
+
+    // Send Escape key
+    function sendEscape() {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'input', data: '\x1b' }));
+        term.focus();
+      }
+    }
+
+    // Send Ctrl+C
+    function sendCtrlC() {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'input', data: '\x03' }));
+        term.focus();
+      }
+    }
+
+    // Paste modal functions
+    function openPastePrompt() {
+      const modal = document.getElementById('paste-modal');
+      modal.style.display = 'flex';
+      document.getElementById('paste-text').focus();
+    }
+
+    function hidePasteModal() {
+      const modal = document.getElementById('paste-modal');
+      modal.style.display = 'none';
+      document.getElementById('paste-text').value = '';
+      term.focus();
+    }
+
+    function submitPaste(event) {
+      event.preventDefault();
+      const text = document.getElementById('paste-text').value;
+      if (text && ws.readyState === WebSocket.OPEN) {
+        // Send the text followed by Enter
+        ws.send(JSON.stringify({ type: 'input', data: text + '\n' }));
+        hidePasteModal();
+      }
+    }
+
+    // Keyboard shortcuts for paste modal
+    document.getElementById('paste-modal').addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        hidePasteModal();
+      } else if (e.key === 'Enter' && e.ctrlKey) {
+        submitPaste(e);
+      }
+    });
+
+    // Git status fetching and display
+    async function fetchGitStatus() {
+      try {
+        const response = await fetch(`/api/sessions/${sessionId}/git-status`, {
+          headers: {
+            'Authorization': `Bearer ${githubToken}`
+          }
+        });
+
+        if (!response.ok) {
+          return;
+        }
+
+        const data = await response.json();
+        updateBranchStatus(data);
+      } catch (error) {
+        console.error('Failed to fetch git status:', error);
+      }
+    }
+
+    function updateBranchStatus(data) {
+      const branchStatusDiv = document.getElementById('branch-status');
+      if (!data.branch) {
+        branchStatusDiv.textContent = '';
+        return;
+      }
+
+      let statusHtml = `<span>${data.branch}</span>`;
+
+      if (data.status === 'in-sync') {
+        statusHtml += ' <span class="status-indicator in-sync">IN SYNC</span>';
+      } else if (data.status === 'ahead') {
+        statusHtml += ' <span class="status-indicator ahead">↑ PUSH NEEDED</span>';
+      } else if (data.status === 'behind') {
+        statusHtml += ' <span class="status-indicator behind">↓ PULL NEEDED</span>';
+      } else if (data.status === 'diverged') {
+        statusHtml += ' <span class="status-indicator diverged">⇅ DIVERGED</span>';
+      } else if (data.status === 'no-remote') {
+        statusHtml += ' <span class="status-indicator">NO REMOTE</span>';
+      }
+
+      branchStatusDiv.innerHTML = statusHtml;
+    }
+
+    // Fetch git status initially when connected
+    ws.addEventListener('open', () => {
+      fetchGitStatus();
+      // Refresh git status every 30 seconds
+      setInterval(fetchGitStatus, 30000);
+    });
+  </script>
+</body>
+</html>

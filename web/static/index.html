@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MAINFRAMEHUB</title>
+  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css">
+</head>
+<body>
+  <div class="terminal-container">
+    <!-- Header -->
+    <div class="terminal-header">
+      <h1 class="terminal-title">█ MAINFRAMEHUB</h1>
+      <div style="display: flex; gap: 10px; align-items: center;">
+        <button class="btn btn-secondary" style="padding: 6px 12px; font-size: 0.9em;" onclick="showSettings()" title="Settings">⚙ SETTINGS</button>
+        <div class="terminal-status" id="status">READY</div>
+      </div>
+    </div>
+
+    <!-- Main Content -->
+    <div id="main-content" class="main-content">
+      <!-- Tabs -->
+      <div class="tabs">
+        <button class="tab active" data-tab="sessions">SESSIONS</button>
+        <button class="tab" data-tab="my-prs">MY PRs</button>
+        <button class="tab" data-tab="branches">BRANCHES</button>
+        <button class="tab" data-tab="new-pr">NEW PR</button>
+      </div>
+
+      <!-- Tab: Sessions -->
+      <div id="tab-sessions" class="tab-content active">
+        <div class="tab-header">
+          <div class="tab-title">ACTIVE SESSIONS</div>
+          <div class="tab-actions">
+            <button class="btn btn-secondary" onclick="openSetupModal()">SETUP PR</button>
+            <button class="btn btn-primary" onclick="refreshSessions()">REFRESH</button>
+          </div>
+        </div>
+        <div id="sessions-loading" class="loading" style="display: none;">LOADING...</div>
+        <div id="sessions-list" class="sessions-list"></div>
+        <div id="sessions-empty" class="empty" style="display: none;">
+          <div class="empty-message">NO SESSIONS FOUND</div>
+          <button class="btn btn-secondary" onclick="showTab('new-pr')">CREATE NEW PR</button>
+        </div>
+      </div>
+
+      <!-- Tab: Branches -->
+      <div id="tab-branches" class="tab-content">
+        <div class="tab-header">
+          <div class="tab-title">MY BRANCHES</div>
+          <div class="tab-actions">
+            <button class="btn btn-primary" onclick="refreshBranches()">REFRESH</button>
+          </div>
+        </div>
+        <div id="branches-loading" class="loading" style="display: none;">LOADING...</div>
+        <div id="branches-list" class="branches-container"></div>
+        <div id="branches-empty" class="empty" style="display: none;">
+          <div class="empty-message">NO BRANCHES FOUND</div>
+        </div>
+      </div>
+
+      <!-- Tab: My PRs -->
+      <div id="tab-my-prs" class="tab-content">
+        <div class="tab-header">
+          <div class="tab-title">MY PULL REQUESTS</div>
+          <div class="tab-actions">
+            <button class="btn btn-primary" onclick="refreshPRs()">REFRESH</button>
+          </div>
+        </div>
+        <div id="prs-loading" class="loading" style="display: none;">LOADING...</div>
+        <div id="prs-list" class="prs-container"></div>
+        <div id="prs-empty" class="empty" style="display: none;">
+          <div class="empty-message">NO PULL REQUESTS FOUND</div>
+          <button class="btn btn-secondary" onclick="showTab('new-pr')">CREATE NEW PR</button>
+        </div>
+      </div>
+
+      <!-- Tab: New PR -->
+      <div id="tab-new-pr" class="tab-content">
+        <div class="tab-title">CREATE NEW PR</div>
+        <form id="new-pr-form" class="form">
+          <div class="form-group">
+            <label>PROMPT</label>
+            <textarea
+              id="pr-prompt"
+              rows="4"
+              required
+              placeholder="Describe what needs to be built..."
+            ></textarea>
+            <div class="form-hint">Be specific about what Claude should work on</div>
+          </div>
+          <div class="form-group">
+            <label>BASE BRANCH</label>
+            <input type="text" id="base-branch" value="next" required>
+            <div style="display: flex; gap: 8px; margin-top: 8px;">
+              <button type="button" class="btn btn-secondary" onclick="document.getElementById('base-branch').value='next'">NEXT</button>
+              <button type="button" class="btn btn-secondary" onclick="document.getElementById('base-branch').value='merge-train/barretenberg'">MT/BB</button>
+              <button type="button" class="btn btn-secondary" onclick="document.getElementById('base-branch').value='merge-train/avm'">MT/AVM</button>
+            </div>
+            <div class="form-hint">The branch to create the PR against</div>
+          </div>
+          <div class="form-actions">
+            <button type="submit" class="btn btn-primary">CREATE PR + SESSION</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- Terminal View -->
+    <div id="terminal-view" class="terminal-view" style="display: none;">
+      <div class="terminal-bar">
+        <div class="terminal-info">
+          <span id="terminal-session-id" class="terminal-session-id"></span>
+          <span id="terminal-pr-info" class="terminal-pr-info"></span>
+        </div>
+        <button class="btn btn-close" onclick="closeTerminal()">CLOSE</button>
+      </div>
+      <div id="xterm-container" class="xterm-container"></div>
+    </div>
+  </div>
+
+  <!-- PR Setup Modal -->
+  <div id="pr-setup-modal" class="modal">
+    <div class="modal-content">
+      <div class="modal-title">SETUP PR</div>
+      <form id="pr-setup-form">
+        <div class="form-group">
+          <label>PR NUMBER</label>
+          <input type="number" id="setup-pr-number" required min="1" placeholder="e.g., 17569">
+          <div class="form-hint">Enter the PR number to setup</div>
+        </div>
+        <div class="form-actions">
+          <button type="submit" class="btn btn-primary">SETUP + ATTACH</button>
+          <button type="button" class="btn btn-secondary" onclick="closeModal('pr-setup-modal')">CANCEL</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Token Modal -->
+  <div id="token-modal" class="modal">
+    <div class="modal-content">
+      <div class="modal-title">GITHUB TOKEN REQUIRED</div>
+      <div id="token-error" class="error-message" style="display: none;"></div>
+      <form id="token-form">
+        <div class="form-group">
+          <label>TOKEN</label>
+          <input type="password" id="github-token" required placeholder="ghp_xxxxx">
+          <div class="form-hint">github.com/settings/tokens | Scopes: repo, read:org</div>
+        </div>
+        <div class="form-actions">
+          <button type="submit" class="btn btn-primary">SAVE TOKEN</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Status Toast -->
+  <div id="toast" class="toast" style="display: none;"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
