@@ -140,14 +140,10 @@
     /* Mobile Paste Bar */
     .mobile-paste-bar {
       display: none;
-      position: fixed;
-      bottom: 0;
-      left: 0;
-      right: 0;
       background: #000000;
       border-top: 2px solid #ffffff;
       padding: 12px;
-      z-index: 1000;
+      flex-shrink: 0;
     }
     .mobile-paste-btn {
       width: 100%;
@@ -171,7 +167,6 @@
       }
       #terminal {
         padding: 5px;
-        padding-bottom: 60px;
       }
       #header {
         padding: 8px 12px;
@@ -230,11 +225,11 @@
       </div>
     </div>
     <div id="terminal"></div>
-  </div>
 
-  <!-- Mobile Paste Bar -->
-  <div class="mobile-paste-bar">
-    <button class="mobile-paste-btn" onclick="openPastePrompt()">PASTE TEXT</button>
+    <!-- Mobile Paste Bar (inside container for flex layout) -->
+    <div class="mobile-paste-bar">
+      <button class="mobile-paste-btn" onclick="openPastePrompt()">PASTE TEXT</button>
+    </div>
   </div>
 
   <!-- Token Modal -->
@@ -385,47 +380,7 @@
     const fitAddon = new FitAddon.FitAddon();
     term.loadAddon(fitAddon);
     term.open(document.getElementById('terminal'));
-
-    // Custom fit that rounds down to complete rows
-    function fitTerminal() {
-      const terminalElement = document.getElementById('terminal');
-      const rect = terminalElement.getBoundingClientRect();
-
-      // Use fitAddon first to get estimated dimensions
-      fitAddon.fit();
-
-      // Get the actual dimensions from the terminal
-      const coreDims = term._core?._renderService?.dimensions;
-      if (coreDims) {
-        const cellHeight = coreDims.actualCellHeight;
-        const cellWidth = coreDims.actualCellWidth;
-
-        // On mobile, subtract paste button area from available height
-        let pasteBarHeight = 0;
-        if (isMobile) {
-          const pasteBar = document.querySelector('.mobile-paste-bar');
-          if (pasteBar) {
-            pasteBarHeight = pasteBar.offsetHeight;
-          }
-        }
-
-        // Calculate how many complete rows fit (excluding paste button area)
-        const padding = 10;
-        const availableHeight = rect.height - padding - pasteBarHeight;
-        const maxRows = Math.floor(availableHeight / cellHeight);
-
-        // Calculate how many complete columns fit
-        const availableWidth = rect.width - 20; // Account for padding
-        const maxCols = Math.floor(availableWidth / cellWidth);
-
-        // Resize to exactly that many rows/cols
-        if (maxRows > 0 && maxCols > 0) {
-          term.resize(maxCols, maxRows);
-        }
-      }
-    }
-
-    fitTerminal();
+    fitAddon.fit();
 
     // Connect WebSocket with terminal size and token
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -436,7 +391,7 @@
     window.addEventListener('resize', () => {
       clearTimeout(resizeTimeout);
       resizeTimeout = setTimeout(() => {
-        fitTerminal();
+        fitAddon.fit();
         if (ws.readyState === WebSocket.OPEN) {
           ws.send(JSON.stringify({
             type: 'resize',
@@ -452,7 +407,7 @@
       window.visualViewport?.addEventListener('resize', () => {
         clearTimeout(resizeTimeout);
         resizeTimeout = setTimeout(() => {
-          fitTerminal();
+          fitAddon.fit();
           if (ws.readyState === WebSocket.OPEN) {
             ws.send(JSON.stringify({
               type: 'resize',
