@@ -400,8 +400,18 @@
         const cellHeight = coreDims.actualCellHeight;
         const cellWidth = coreDims.actualCellWidth;
 
-        // Calculate how many complete rows fit
-        const availableHeight = rect.height - 10; // Account for padding
+        // On mobile, subtract paste button area from available height
+        let pasteBarHeight = 0;
+        if (isMobile) {
+          const pasteBar = document.querySelector('.mobile-paste-bar');
+          if (pasteBar) {
+            pasteBarHeight = pasteBar.offsetHeight;
+          }
+        }
+
+        // Calculate how many complete rows fit (excluding paste button area)
+        const padding = 10;
+        const availableHeight = rect.height - padding - pasteBarHeight;
         const maxRows = Math.floor(availableHeight / cellHeight);
 
         // Calculate how many complete columns fit
