@@ -294,15 +294,24 @@ export function setupAPI(app: Express, services: APIServices, authMiddleware: Re
       const currentUser = (req as any).githubUser;
       const { execSync } = await import('child_process');
 
+      // Validate config.repo exists
+      if (!config.repo) {
+        throw new Error('Reference git repository path not configured');
+      }
+
       // Get all open PRs to exclude branches that already have PRs
       const openPRs = await github.listPRs(config.repoName, { state: 'open' });
       const prBranches = new Set(openPRs.map((pr: any) => pr.branch));
 
       // Fetch ALL branches from remote in reference git folder
-      execSync(`git -C "${config.repo}" fetch --all --prune`, {
-        encoding: 'utf-8',
-        stdio: ['pipe', 'pipe', 'ignore']
-      });
+      try {
+        execSync(`git -C "${config.repo}" fetch --all --prune`, {
+          encoding: 'utf-8',
+          stdio: ['pipe', 'pipe', 'ignore']
+        });
+      } catch (fetchError: any) {
+        throw new Error(`Failed to fetch branches from ${config.repo}: ${fetchError.message}`);
+      }
 
       // Get all remote branches from the reference git folder
       const branchOutput = execSync(

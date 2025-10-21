@@ -451,13 +451,12 @@ async function loadBranches() {
     const response = await fetchWithAuth('/api/branches');
 
     if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.message || 'Failed to load branches');
+      const errorData = await response.json();
+      throw new Error(errorData.message || 'Failed to load branches');
     }
 
     const data = await response.json();
-
-    renderBranches(data.branches || []);
+    renderBranches(data.branches);
   } catch (error) {
     showToast(`Error loading branches: ${error.message}`, 'error');
     hideLoading('branches');
@@ -475,7 +474,7 @@ function renderBranches(branches) {
 
   hideLoading('branches');
 
-  if (!branches || branches.length === 0) {
+  if (branches.length === 0) {
     list.style.display = 'none';
     empty.style.display = 'flex';
     return;
