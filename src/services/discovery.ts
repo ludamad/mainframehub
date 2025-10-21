@@ -27,10 +27,13 @@ export class DiscoveryService {
   ) {}
 
   /**
-   * Discover all sessions with our prefix
+   * Discover all sessions and match them to PRs based on git info
+   * This is the core tmux-centric operation that works with any session,
+   * not just those with our prefix
    */
   async discover(): Promise<SessionState[]> {
-    const sessions = await this.tmux.list(this.sessionPrefix);
+    // Get ALL sessions (not just prefixed ones) for better PR detection
+    const sessions = await this.tmux.list('');
     const states = await Promise.all(
       sessions.map(s => this.discoverOne(s))
     );

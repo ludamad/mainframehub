@@ -20,6 +20,7 @@ export class ClaudeHandoverService {
     baseBranch: string;
     userPrompt: string;
     guidelines?: string;
+    skipPermissions?: boolean;
   }): Promise<void> {
     // Build the full context prompt
     const fullContext = this.buildContext(context);
@@ -27,9 +28,13 @@ export class ClaudeHandoverService {
     // Escape the prompt for shell
     const escapedPrompt = fullContext.replace(/'/g, "'\\''");
 
+    // Build Claude command with optional skip permissions flag
+    const skipPermissionsFlag = context.skipPermissions ? ' --dangerously-skip-permissions' : '';
+    const claudeCommand = `claude '${escapedPrompt}'${skipPermissionsFlag}`;
+
     // Start Claude with the prompt as an argument
     // This way the prompt is queued and sent automatically after permission approval
-    await this.tmux.sendKeys(sessionId, `claude '${escapedPrompt}'`);
+    await this.tmux.sendKeys(sessionId, claudeCommand);
   }
 
   private buildContext(context: {
@@ -39,17 +44,17 @@ export class ClaudeHandoverService {
     userPrompt: string;
     guidelines?: string;
   }): string {
-    return `I'm working on PR #${context.prNumber} (${context.branch} -> ${context.baseBranch}).
+    return `Working on PR #${context.prNumber}
+Branch: ${context.branch} -> ${context.baseBranch}
 
-User's request: ${context.userPrompt}
+Task: ${context.userPrompt}
 
-${context.guidelines ? `Project guidelines:\n${context.guidelines}\n` : ''}
+${context.guidelines ? `Guidelines:\n${context.guidelines}\n` : ''}You're in the PR's git repo. Implement the task following these steps:
+1. Read relevant files to understand the codebase
+2. Implement the changes
+3. Test your changes
+4. Commit with a clear message
 
-Please help me implement this. Start by:
-1. Updating the PR title and description if needed
-2. Understanding the codebase context
-3. Implementing the requested changes
-
-Let me know when you're ready to start!`;
+Focus on correctness and incremental progress. Let's build this.`;
   }
 }

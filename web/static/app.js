@@ -11,6 +11,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initTabs();
   initForms();
   initTokenForm();
+  initSettingsForm();
   handleRoute();
 
   // Check for token before loading anything
@@ -114,7 +115,86 @@ function hideTokenModal() {
 }
 
 function showSettings() {
-  showTokenModal();
+  showSettingsModal();
+}
+
+async function showSettingsModal() {
+  const modal = document.getElementById('settings-modal');
+  modal.classList.add('active');
+
+  // Load current settings
+  try {
+    const response = await fetchWithAuth('/api/settings');
+    const settings = await response.json();
+
+    document.getElementById('skip-permissions-setting').checked = settings.dangerouslySkipPermissions || false;
+  } catch (error) {
+    console.error('Error loading settings:', error);
+  }
+}
+
+// Initialize settings form
+function initSettingsForm() {
+  document.getElementById('settings-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    await saveSettings();
+  });
+}
+
+async function saveSettings() {
+  const tokenInput = document.getElementById('github-token-setting');
+  const skipPermissions = document.getElementById('skip-permissions-setting').checked;
+  const errorDiv = document.getElementById('settings-error');
+
+  try {
+    // Save CLI settings
+    const settingsResponse = await fetchWithAuth('/api/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dangerouslySkipPermissions: skipPermissions })
+    });
+
+    if (!settingsResponse.ok) {
+      throw new Error('Failed to save settings');
+    }
+
+    // If token was provided, update it
+    const token = tokenInput.value.trim();
+    if (token) {
+      const validateResponse = await fetch('/api/auth/validate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token })
+      });
+
+      const data = await validateResponse.json();
+
+      if (!data.valid || !data.hasWriteAccess) {
+        errorDiv.textContent = 'Invalid token or insufficient permissions (requires repo write access)';
+        errorDiv.style.display = 'block';
+        return;
+      }
+
+      // Save token
+      localStorage.setItem('githubToken', token);
+      githubToken = token;
+    }
+
+    // Clear error and hide modal
+    errorDiv.style.display = 'none';
+    tokenInput.value = '';
+    closeModal('settings-modal');
+
+    showToast('Settings saved successfully', 'success');
+
+    // Reload if token changed
+    if (token) {
+      window.location.reload();
+    }
+  } catch (error) {
+    errorDiv.textContent = `Error: ${error.message}`;
+    errorDiv.style.display = 'block';
+  }
 }
 
 async function saveToken() {

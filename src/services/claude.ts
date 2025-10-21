@@ -14,30 +14,34 @@ export class ClaudeService {
   async generateMetadata(prompt: string, options?: {
     guidelines?: string;
     model?: 'haiku' | 'sonnet';
+    skipPermissions?: boolean;
   }): Promise<ClaudeMetadata> {
     const model = options?.model || 'haiku';
     const guidelines = options?.guidelines || '';
+    const skipPermissionsFlag = options?.skipPermissions ? ' --dangerously-skip-permissions' : '';
 
-    const fullPrompt = `You are helping set up a GitHub pull request. Based on the user's request, generate a branch name, title, and body.
+    const fullPrompt = `Generate PR metadata from this task:
 
-User's request: ${prompt}
+"${prompt}"
 
 ${guidelines ? `Guidelines:\n${guidelines}\n` : ''}
+Create:
+1. Branch name: ad/TYPE/short-kebab-case
+   Types: feat, fix, refactor, test, docs, chore
+   Examples: ad/feat/add-auth, ad/fix/null-check
 
-Generate:
-1. A branch name following the pattern ad/TYPE/short-description (e.g., ad/feat/add-dark-mode, ad/fix/null-check)
-2. A PR title following the pattern TYPE: description (e.g., "feat: add dark mode toggle", "refactor: simplify auth logic")
-3. A brief PR body (2-4 sentences) describing what will be done
+2. PR title: TYPE: concise description (max 72 chars)
+   Examples: "feat: add user authentication", "fix: handle null values"
 
-IMPORTANT: The title should start with the TYPE (feat, fix, refactor, etc.) followed by a colon, NOT with "ad/"
+3. PR body: 2-4 sentences describing WHAT will be implemented and WHY
 
-Respond ONLY in this exact format (one line each):
+Output format (one line each):
 BRANCH: <branch-name>
 TITLE: <title>
 BODY: <body>`;
 
     try {
-      const output = execSync(`claude -p "${fullPrompt.replace(/"/g, '\\"')}" --model ${model}`, {
+      const output = execSync(`claude -p "${fullPrompt.replace(/"/g, '\\"')}" --model ${model}${skipPermissionsFlag}`, {
         encoding: 'utf-8',
         timeout: 30000,
       });

@@ -10,6 +10,18 @@ interface APIServices {
   config: any;
 }
 
+interface UserSettings {
+  dangerouslySkipPermissions?: boolean;
+}
+
+// In-memory user settings storage (per user)
+const userSettings = new Map<string, UserSettings>();
+
+// Export function to get user settings
+export function getUserSettings(username: string): UserSettings {
+  return userSettings.get(username) || {};
+}
+
 export function setupAPI(app: Express, services: APIServices, authMiddleware: RequestHandler) {
   const { discovery, prService, github, config } = services;
 
@@ -56,6 +68,7 @@ export function setupAPI(app: Express, services: APIServices, authMiddleware: Re
   app.post('/api/new', authMiddleware, async (req: Request, res: Response) => {
     try {
       const { prompt, baseBranch } = req.body;
+      const currentUser = (req as any).githubUser;
 
       if (!prompt || typeof prompt !== 'string' || prompt.trim().length === 0) {
         return res.status(400).json({
@@ -64,9 +77,13 @@ export function setupAPI(app: Express, services: APIServices, authMiddleware: Re
         });
       }
 
+      // Get user settings
+      const settings = getUserSettings(currentUser);
+
       const result = await prService.createNew({
         prompt: prompt.trim(),
-        baseBranch: baseBranch || config.baseBranch
+        baseBranch: baseBranch || config.baseBranch,
+        skipPermissions: settings.dangerouslySkipPermissions
       });
 
       res.json({
@@ -98,6 +115,7 @@ export function setupAPI(app: Express, services: APIServices, authMiddleware: Re
     try {
       const prNumber = parseInt(req.params.prNumber);
       const { baseBranch } = req.body;
+      const currentUser = (req as any).githubUser;
 
       if (isNaN(prNumber) || prNumber <= 0) {
         return res.status(400).json({
@@ -106,7 +124,10 @@ export function setupAPI(app: Express, services: APIServices, authMiddleware: Re
         });
       }
 
-      const result = await prService.setupExisting(prNumber);
+      // Get user settings
+      const settings = getUserSettings(currentUser);
+
+      const result = await prService.setupExisting(prNumber, settings.dangerouslySkipPermissions);
 
       res.json({
         success: true,
@@ -136,6 +157,7 @@ export function setupAPI(app: Express, services: APIServices, authMiddleware: Re
   app.post('/api/from-branch', authMiddleware, async (req: Request, res: Response) => {
     try {
       const { branchName, title, baseBranch } = req.body;
+      const currentUser = (req as any).githubUser;
 
       if (!branchName || typeof branchName !== 'string' || branchName.trim().length === 0) {
         return res.status(400).json({
@@ -151,10 +173,14 @@ export function setupAPI(app: Express, services: APIServices, authMiddleware: Re
         });
       }
 
+      // Get user settings
+      const settings = getUserSettings(currentUser);
+
       const result = await prService.createFromBranch({
         branchName: branchName.trim(),
         title: title.trim(),
-        baseBranch: baseBranch || config.baseBranch
+        baseBranch: baseBranch || config.baseBranch,
+        skipPermissions: settings.dangerouslySkipPermissions
       });
 
       res.json({
@@ -277,7 +303,10 @@ export function setupAPI(app: Express, services: APIServices, authMiddleware: Re
       const output = execSync(cmd, { encoding: 'utf-8', maxBuffer: 10 * 1024 * 1024 });
       const allBranches = output.trim().split('\n').filter(line => line);
 
-      // For each branch, check if current user is the last committer
+      // Get current user's email
+      const userEmail = execSync('gh api user --jq .email', { encoding: 'utf-8' }).trim();
+
+      // For each branch, check if current user has any commits on it
       const userBranches = [];
       for (const branchName of allBranches) {
         // Skip branches that already have PRs
@@ -286,16 +315,15 @@ export function setupAPI(app: Express, services: APIServices, authMiddleware: Re
         }
 
         try {
-          // Get the last committer on this branch using the reference repo
-          const lastCommitter = execSync(
-            `git -C "${config.repo}" log -1 --format=%ae origin/${branchName}`,
+          // Get all unique authors on this branch (not on the base branch)
+          // This finds authors who have commits unique to this branch
+          const authors = execSync(
+            `git -C "${config.repo}" log --format=%ae origin/${config.baseBranch}..origin/${branchName} 2>/dev/null || echo ""`,
             { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'ignore'] }
           ).trim();
 
-          // Check if it's the current user's email
-          const userEmail = execSync('gh api user --jq .email', { encoding: 'utf-8' }).trim();
-
-          if (lastCommitter === userEmail || lastCommitter.includes(currentUser)) {
+          // Check if user's email or username appears in the authors
+          if (authors && (authors.includes(userEmail) || authors.includes(currentUser))) {
             // Check if protected
             const protectedStatus = execSync(
               `gh api "repos/${config.repoName}/branches/${branchName}" --jq .protected`,
@@ -410,6 +438,43 @@ export function setupAPI(app: Express, services: APIServices, authMiddleware: Re
       console.error(`Error getting git status for session ${req.params.sessionId}:`, error);
       res.status(500).json({
         error: 'Failed to get git status',
+        message: error.message
+      });
+    }
+  });
+
+  // GET /api/settings - Get user settings
+  app.get('/api/settings', authMiddleware, (req: Request, res: Response) => {
+    try {
+      const currentUser = (req as any).githubUser;
+      const settings = userSettings.get(currentUser) || {};
+      res.json(settings);
+    } catch (error: any) {
+      console.error('Error getting settings:', error);
+      res.status(500).json({
+        error: 'Failed to get settings',
+        message: error.message
+      });
+    }
+  });
+
+  // POST /api/settings - Update user settings
+  app.post('/api/settings', authMiddleware, (req: Request, res: Response) => {
+    try {
+      const currentUser = (req as any).githubUser;
+      const { dangerouslySkipPermissions } = req.body;
+
+      const settings: UserSettings = {};
+      if (typeof dangerouslySkipPermissions === 'boolean') {
+        settings.dangerouslySkipPermissions = dangerouslySkipPermissions;
+      }
+
+      userSettings.set(currentUser, settings);
+      res.json({ success: true, settings });
+    } catch (error: any) {
+      console.error('Error saving settings:', error);
+      res.status(500).json({
+        error: 'Failed to save settings',
         message: error.message
       });
     }

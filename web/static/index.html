@@ -81,14 +81,14 @@
         <div class="tab-title">CREATE NEW PR</div>
         <form id="new-pr-form" class="form">
           <div class="form-group">
-            <label>PROMPT</label>
+            <label>TASK DESCRIPTION</label>
             <textarea
               id="pr-prompt"
               rows="4"
               required
-              placeholder="Describe what needs to be built..."
+              placeholder="Example: Add user authentication with GitHub OAuth, including login/logout and session management"
             ></textarea>
-            <div class="form-hint">Be specific about what Claude should work on</div>
+            <div class="form-hint">Be specific: what to build, key requirements, and acceptance criteria</div>
           </div>
           <div class="form-group">
             <label>BASE BRANCH</label>
@@ -123,16 +123,42 @@
   <!-- PR Setup Modal -->
   <div id="pr-setup-modal" class="modal">
     <div class="modal-content">
-      <div class="modal-title">SETUP PR</div>
+      <div class="modal-title">SETUP EXISTING PR</div>
       <form id="pr-setup-form">
         <div class="form-group">
           <label>PR NUMBER</label>
           <input type="number" id="setup-pr-number" required min="1" placeholder="e.g., 17569">
-          <div class="form-hint">Enter the PR number to setup</div>
+          <div class="form-hint">Creates a local clone and tmux session for this PR</div>
         </div>
         <div class="form-actions">
-          <button type="submit" class="btn btn-primary">SETUP + ATTACH</button>
+          <button type="submit" class="btn btn-primary">CLONE & OPEN</button>
           <button type="button" class="btn btn-secondary" onclick="closeModal('pr-setup-modal')">CANCEL</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Settings Modal -->
+  <div id="settings-modal" class="modal">
+    <div class="modal-content">
+      <div class="modal-title">SETTINGS</div>
+      <div id="settings-error" class="error-message" style="display: none;"></div>
+      <form id="settings-form">
+        <div class="form-group">
+          <label>GITHUB TOKEN</label>
+          <input type="password" id="github-token-setting" placeholder="ghp_xxxxx">
+          <div class="form-hint">github.com/settings/tokens | Scopes: repo, read:org</div>
+        </div>
+        <div class="form-group">
+          <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+            <input type="checkbox" id="skip-permissions-setting" style="width: auto; margin: 0;">
+            <span>Use --dangerously-skip-permissions for Claude CLI</span>
+          </label>
+          <div class="form-hint">Skip permission checks when invoking Claude (faster but less safe)</div>
+        </div>
+        <div class="form-actions">
+          <button type="submit" class="btn btn-primary">SAVE SETTINGS</button>
+          <button type="button" class="btn btn-secondary" onclick="closeModal('settings-modal')">CANCEL</button>
         </div>
       </form>
     </div>

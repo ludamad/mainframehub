@@ -48,6 +48,7 @@ export class PRService {
   async createNew(params: {
     prompt: string;
     baseBranch?: string;
+    skipPermissions?: boolean;
   }): Promise<{
     pr: PullRequest;
     session: TmuxSession;
@@ -59,6 +60,7 @@ export class PRService {
     const metadata = await this.claude.generateMetadata(params.prompt, {
       guidelines: this.config.guidelines?.branchFormat,
       model: 'haiku',
+      skipPermissions: params.skipPermissions,
     });
 
     console.log(`[2/8] Cloning repository...`);
@@ -117,6 +119,7 @@ export class PRService {
       baseBranch,
       userPrompt: params.prompt,
       guidelines: this.formatGuidelines(),
+      skipPermissions: params.skipPermissions,
     });
 
     console.log(`✓ PR #${pr.number} created and session started!`);
@@ -135,6 +138,7 @@ export class PRService {
     branchName: string;
     title: string;
     baseBranch?: string;
+    skipPermissions?: boolean;
   }): Promise<{
     pr: PullRequest;
     session: TmuxSession;
@@ -181,6 +185,7 @@ export class PRService {
       baseBranch,
       userPrompt: `Working on PR from existing branch: ${params.branchName}`,
       guidelines: this.formatGuidelines(),
+      skipPermissions: params.skipPermissions,
     });
 
     console.log(`✓ PR #${pr.number} created from branch and session started!`);
@@ -196,7 +201,7 @@ export class PRService {
    * 3. Create tmux session
    * 4. Initialize Claude with PR context
    */
-  async setupExisting(prNumber: number): Promise<{
+  async setupExisting(prNumber: number, skipPermissions?: boolean): Promise<{
     pr: PullRequest;
     session: TmuxSession;
     clonePath: string;
@@ -237,6 +242,7 @@ export class PRService {
       baseBranch: pr.baseBranch,
       userPrompt: `Continue working on: ${pr.title}`,
       guidelines: this.formatGuidelines(),
+      skipPermissions: skipPermissions,
     });
 
     console.log(`✓ PR #${pr.number} set up and session started!`);
