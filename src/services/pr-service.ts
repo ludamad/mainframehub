@@ -156,20 +156,22 @@ export class PRService {
       draft: false,
     });
 
-    console.log(`[2/4] Cloning repository (PR #${pr.number})...`);
     const clonePath = join(this.config.clonesDir, `pr-${pr.number}`);
-    if (!existsSync(this.config.clonesDir)) {
-      mkdirSync(this.config.clonesDir, { recursive: true });
-    }
+    const cloneExists = existsSync(clonePath);
 
-    if (existsSync(clonePath)) {
-      throw new Error(`Clone already exists at ${clonePath}`);
-    }
+    if (!cloneExists) {
+      console.log(`[2/4] Cloning repository (PR #${pr.number})...`);
+      if (!existsSync(this.config.clonesDir)) {
+        mkdirSync(this.config.clonesDir, { recursive: true });
+      }
 
-    this.git.clone(this.config.repo, clonePath, {
-      depth: 1,
-      branch: params.branchName,
-    });
+      this.git.clone(this.config.repo, clonePath, {
+        depth: 1,
+        branch: params.branchName,
+      });
+    } else {
+      console.log('[2/4] Using existing clone...');
+    }
 
     console.log('[3/4] Creating tmux session...');
     const sessionId = `${this.config.sessionPrefix}${pr.number}`;
@@ -179,11 +181,15 @@ export class PRService {
     });
 
     console.log('[4/4] Initializing Claude session...');
+    const userPrompt = cloneExists
+      ? `Resuming work on PR #${pr.number} from branch ${params.branchName}\n\nThe repository is already cloned and ready. Waiting for your instructions.`
+      : `Working on PR from existing branch: ${params.branchName}`;
+
     await this.handover.initialize(sessionId, {
       prNumber: pr.number,
       branch: params.branchName,
       baseBranch,
-      userPrompt: `Working on PR from existing branch: ${params.branchName}`,
+      userPrompt,
       guidelines: this.formatGuidelines(),
       skipPermissions: params.skipPermissions,
     });
@@ -212,21 +218,22 @@ export class PRService {
       throw new Error(`PR #${prNumber} not found`);
     }
 
-    console.log('[2/4] Cloning repository...');
     const clonePath = join(this.config.clonesDir, `pr-${pr.number}`);
+    const cloneExists = existsSync(clonePath);
 
-    if (existsSync(clonePath)) {
-      throw new Error(`Clone already exists at ${clonePath}`);
+    if (!cloneExists) {
+      console.log('[2/4] Cloning repository...');
+      if (!existsSync(this.config.clonesDir)) {
+        mkdirSync(this.config.clonesDir, { recursive: true });
+      }
+
+      this.git.clone(this.config.repo, clonePath, {
+        depth: 1,
+        branch: pr.branch,
+      });
+    } else {
+      console.log('[2/4] Using existing clone...');
     }
-
-    if (!existsSync(this.config.clonesDir)) {
-      mkdirSync(this.config.clonesDir, { recursive: true });
-    }
-
-    this.git.clone(this.config.repo, clonePath, {
-      depth: 1,
-      branch: pr.branch,
-    });
 
     console.log('[3/4] Creating tmux session...');
     const sessionId = `${this.config.sessionPrefix}${pr.number}`;
@@ -236,11 +243,15 @@ export class PRService {
     });
 
     console.log('[4/4] Initializing Claude session...');
+    const userPrompt = cloneExists
+      ? `Resuming work on PR #${pr.number}: ${pr.title}\n\nThe repository is already cloned and ready. Waiting for your instructions.`
+      : `Continue working on: ${pr.title}`;
+
     await this.handover.initialize(sessionId, {
       prNumber: pr.number,
       branch: pr.branch,
       baseBranch: pr.baseBranch,
-      userPrompt: `Continue working on: ${pr.title}`,
+      userPrompt,
       guidelines: this.formatGuidelines(),
       skipPermissions: skipPermissions,
     });
