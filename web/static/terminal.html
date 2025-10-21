@@ -232,6 +232,32 @@
     </div>
   </div>
 
+  <!-- Settings Modal -->
+  <div id="settings-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.9); z-index: 2000; align-items: center; justify-content: center;">
+    <div style="background: #000000; border: 2px solid #ffffff; padding: 30px; max-width: 500px; width: 90%;">
+      <div style="color: #ffffff; font-size: 1.2em; font-weight: bold; letter-spacing: 1px; margin-bottom: 25px; text-align: center;">SETTINGS</div>
+      <div id="settings-error" style="background: rgba(255, 255, 255, 0.1); border: 1px solid #ffffff; padding: 12px; margin-bottom: 15px; color: #ffffff; font-size: 0.9em; letter-spacing: 0.5px; text-align: center; display: none;"></div>
+      <form id="settings-form" onsubmit="saveTerminalSettings(event); return false;">
+        <div style="margin-bottom: 20px;">
+          <label style="display: block; color: #ffffff; font-size: 0.85em; margin-bottom: 8px; letter-spacing: 1px;">GITHUB TOKEN</label>
+          <input type="password" id="github-token-setting" placeholder="ghp_xxxxx" style="width: 100%; background: transparent; border: 1px solid #ffffff; color: #ffffff; font-family: inherit; font-size: 1em; padding: 10px; outline: none;">
+          <div style="color: #cccccc; font-size: 0.8em; margin-top: 5px;">github.com/settings/tokens | Scopes: repo, read:org</div>
+        </div>
+        <div style="margin-bottom: 20px;">
+          <label style="display: flex; align-items: center; gap: 10px; cursor: pointer; color: #ffffff;">
+            <input type="checkbox" id="skip-permissions-setting" style="width: auto; margin: 0;">
+            <span>Use --dangerously-skip-permissions for Claude CLI</span>
+          </label>
+          <div style="color: #cccccc; font-size: 0.8em; margin-top: 5px; margin-left: 30px;">Skip permission checks when invoking Claude (faster but less safe)</div>
+        </div>
+        <div style="display: flex; gap: 10px; margin-top: 25px;">
+          <button type="button" onclick="hideSettingsModal()" style="flex: 1; background: transparent; border: 1px solid #ffffff; color: #ffffff; font-family: inherit; font-size: 0.9em; padding: 10px 20px; cursor: pointer; letter-spacing: 1px;">CANCEL</button>
+          <button type="submit" style="flex: 1; background: rgba(255, 255, 255, 0.1); border: 1px solid #ffffff; color: #ffffff; font-family: inherit; font-size: 0.9em; padding: 10px 20px; cursor: pointer; letter-spacing: 1px;">SAVE SETTINGS</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <!-- Token Modal -->
   <div id="token-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.9); z-index: 2000; align-items: center; justify-content: center;">
     <div style="background: #000000; border: 2px solid #ffffff; padding: 30px; max-width: 500px; width: 90%;">
@@ -299,8 +325,88 @@
       modal.style.display = 'none';
     }
 
-    function showSettings() {
-      showTokenModal();
+    async function showSettings() {
+      const modal = document.getElementById('settings-modal');
+      modal.style.display = 'flex';
+
+      // Load current settings
+      try {
+        const response = await fetch('/api/settings', {
+          headers: { 'Authorization': `Bearer ${githubToken}` }
+        });
+        if (response.ok) {
+          const settings = await response.json();
+          document.getElementById('skip-permissions-setting').checked = settings.dangerouslySkipPermissions || false;
+        }
+      } catch (error) {
+        console.error('Error loading settings:', error);
+      }
+    }
+
+    function hideSettingsModal() {
+      const modal = document.getElementById('settings-modal');
+      modal.style.display = 'none';
+    }
+
+    async function saveTerminalSettings(event) {
+      event.preventDefault();
+      const tokenInput = document.getElementById('github-token-setting');
+      const skipPermissions = document.getElementById('skip-permissions-setting').checked;
+      const errorDiv = document.getElementById('settings-error');
+
+      try {
+        // Save CLI settings
+        const settingsResponse = await fetch('/api/settings', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${githubToken}`
+          },
+          body: JSON.stringify({ dangerouslySkipPermissions: skipPermissions })
+        });
+
+        if (!settingsResponse.ok) {
+          throw new Error('Failed to save settings');
+        }
+
+        // If token was provided, update it
+        const token = tokenInput.value.trim();
+        if (token) {
+          const validateResponse = await fetch('/api/auth/validate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token })
+          });
+
+          const data = await validateResponse.json();
+
+          if (!data.valid || !data.hasWriteAccess) {
+            errorDiv.textContent = 'Invalid token or insufficient permissions (requires repo write access)';
+            errorDiv.style.display = 'block';
+            return;
+          }
+
+          // Save token
+          localStorage.setItem('githubToken', token);
+          githubToken = token;
+        }
+
+        // Clear error and hide modal
+        errorDiv.style.display = 'none';
+        tokenInput.value = '';
+        hideSettingsModal();
+
+        // Show success message (you could add a toast notification here)
+        console.log('Settings saved successfully');
+
+        // Reload if token changed
+        if (token) {
+          window.location.reload();
+        }
+      } catch (error) {
+        errorDiv.textContent = `Error: ${error.message}`;
+        errorDiv.style.display = 'block';
+      }
     }
 
     async function saveToken(event) {
