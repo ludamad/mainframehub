@@ -147,7 +147,6 @@
       background: #000000;
       border-top: 2px solid #ffffff;
       padding: 12px;
-      padding-top: 20px;
       z-index: 1000;
     }
     .mobile-paste-btn {
@@ -386,7 +385,37 @@
     const fitAddon = new FitAddon.FitAddon();
     term.loadAddon(fitAddon);
     term.open(document.getElementById('terminal'));
-    fitAddon.fit();
+
+    // Custom fit that rounds down to complete rows
+    function fitTerminal() {
+      const terminalElement = document.getElementById('terminal');
+      const rect = terminalElement.getBoundingClientRect();
+
+      // Use fitAddon first to get estimated dimensions
+      fitAddon.fit();
+
+      // Get the actual dimensions from the terminal
+      const coreDims = term._core?._renderService?.dimensions;
+      if (coreDims) {
+        const cellHeight = coreDims.actualCellHeight;
+        const cellWidth = coreDims.actualCellWidth;
+
+        // Calculate how many complete rows fit
+        const availableHeight = rect.height - 10; // Account for padding
+        const maxRows = Math.floor(availableHeight / cellHeight);
+
+        // Calculate how many complete columns fit
+        const availableWidth = rect.width - 20; // Account for padding
+        const maxCols = Math.floor(availableWidth / cellWidth);
+
+        // Resize to exactly that many rows/cols
+        if (maxRows > 0 && maxCols > 0) {
+          term.resize(maxCols, maxRows);
+        }
+      }
+    }
+
+    fitTerminal();
 
     // Connect WebSocket with terminal size and token
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -397,7 +426,7 @@
     window.addEventListener('resize', () => {
       clearTimeout(resizeTimeout);
       resizeTimeout = setTimeout(() => {
-        fitAddon.fit();
+        fitTerminal();
         if (ws.readyState === WebSocket.OPEN) {
           ws.send(JSON.stringify({
             type: 'resize',
@@ -413,7 +442,7 @@
       window.visualViewport?.addEventListener('resize', () => {
         clearTimeout(resizeTimeout);
         resizeTimeout = setTimeout(() => {
-          fitAddon.fit();
+          fitTerminal();
           if (ws.readyState === WebSocket.OPEN) {
             ws.send(JSON.stringify({
               type: 'resize',
