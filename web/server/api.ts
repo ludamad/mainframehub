@@ -298,15 +298,28 @@ export function setupAPI(app: Express, services: APIServices, authMiddleware: Re
       const openPRs = await github.listPRs(config.repoName, { state: 'open' });
       const prBranches = new Set(openPRs.map((pr: any) => pr.branch));
 
-      // Get all branches from GitHub
-      const cmd = `gh api "repos/${config.repoName}/branches" --paginate --jq '.[] | .name'`;
-      const output = execSync(cmd, { encoding: 'utf-8', maxBuffer: 10 * 1024 * 1024 });
-      const allBranches = output.trim().split('\n').filter(line => line);
+      // Fetch ALL branches from remote in reference git folder
+      execSync(`git -C "${config.repo}" fetch --all --prune`, {
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'ignore']
+      });
 
-      // Get current user's email
+      // Get all remote branches from the reference git folder
+      const branchOutput = execSync(
+        `git -C "${config.repo}" branch -r --format='%(refname:short)'`,
+        { encoding: 'utf-8' }
+      );
+      const allBranches = branchOutput
+        .trim()
+        .split('\n')
+        .filter(line => line.startsWith('origin/'))
+        .map(line => line.replace('origin/', ''))
+        .filter(line => line && line !== 'HEAD');
+
+      // Get current user's email from token
       const userEmail = execSync('gh api user --jq .email', { encoding: 'utf-8' }).trim();
 
-      // For each branch, check if current user has any commits on it
+      // For each branch, check if the LAST commit is by the current user
       const userBranches = [];
       for (const branchName of allBranches) {
         // Skip branches that already have PRs
@@ -315,15 +328,14 @@ export function setupAPI(app: Express, services: APIServices, authMiddleware: Re
         }
 
         try {
-          // Get all unique authors on this branch (not on the base branch)
-          // This finds authors who have commits unique to this branch
-          const authors = execSync(
-            `git -C "${config.repo}" log --format=%ae origin/${config.baseBranch}..origin/${branchName} 2>/dev/null || echo ""`,
+          // Get the author email of the last commit on this branch
+          const lastCommitAuthor = execSync(
+            `git -C "${config.repo}" log -1 --format=%ae origin/${branchName} 2>/dev/null`,
             { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'ignore'] }
           ).trim();
 
-          // Check if user's email or username appears in the authors
-          if (authors && (authors.includes(userEmail) || authors.includes(currentUser))) {
+          // Check if the last commit is by the current user
+          if (lastCommitAuthor === userEmail) {
             // Check if protected
             const protectedStatus = execSync(
               `gh api "repos/${config.repoName}/branches/${branchName}" --jq .protected`,
@@ -336,7 +348,7 @@ export function setupAPI(app: Express, services: APIServices, authMiddleware: Re
             });
           }
         } catch (error) {
-          // Branch might not exist locally or other error, skip it
+          // Branch might not exist or other error, skip it
           continue;
         }
       }
