@@ -287,6 +287,13 @@ function refreshSessions() {
 async function loadPRs() {
   try {
     showLoading('prs');
+
+    // Trigger background cache refresh (don't wait for it)
+    fetchWithAuth('/api/prs/refresh', { method: 'POST' }).catch(err => {
+      console.warn('Failed to trigger PR cache refresh:', err);
+    });
+
+    // Get PRs from cache (fast)
     const response = await fetchWithAuth('/api/prs');
     const data = await response.json();
 

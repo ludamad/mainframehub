@@ -1,6 +1,7 @@
 import { Express, Request, Response, RequestHandler } from 'express';
 import { DiscoveryService } from '../../src/services/discovery.js';
 import { SessionCacheService } from '../../src/services/session-cache.js';
+import { PRCacheService } from '../../src/services/pr-cache.js';
 import { PRService } from '../../src/services/pr-service.js';
 import type { PullRequest } from '../../src/services/github.js';
 import { writeFileSync } from 'fs';
@@ -8,6 +9,7 @@ import { writeFileSync } from 'fs';
 interface APIServices {
   discovery: DiscoveryService;
   sessionCache: SessionCacheService;
+  prCache: PRCacheService;
   prService: PRService;
   github: any;
   config: any;
@@ -26,7 +28,7 @@ export function getUserSettings(config: any): UserSettings {
 }
 
 export function setupAPI(app: Express, services: APIServices, authMiddleware: RequestHandler) {
-  const { discovery, sessionCache, prService, github, config, configPath } = services;
+  const { discovery, sessionCache, prCache, prService, github, config, configPath } = services;
 
   // GET /api/discover - List all sessions with PR info (cached)
   app.get('/api/discover', authMiddleware, async (req: Request, res: Response) => {
@@ -104,6 +106,11 @@ export function setupAPI(app: Express, services: APIServices, authMiddleware: Re
         prompt: prompt.trim(),
         baseBranch: baseBranch || config.baseBranch,
         skipPermissions: settings.dangerouslySkipPermissions
+      });
+
+      // Invalidate PR cache for this user
+      prCache.invalidate(currentUser).catch(error => {
+        console.error('Failed to invalidate PR cache:', error);
       });
 
       res.json({
@@ -203,6 +210,11 @@ export function setupAPI(app: Express, services: APIServices, authMiddleware: Re
         skipPermissions: settings.dangerouslySkipPermissions
       });
 
+      // Invalidate PR cache for this user
+      prCache.invalidate(currentUser).catch(error => {
+        console.error('Failed to invalidate PR cache:', error);
+      });
+
       res.json({
         success: true,
         pr: {
@@ -254,17 +266,14 @@ export function setupAPI(app: Express, services: APIServices, authMiddleware: Re
     }
   });
 
-  // GET /api/prs - List current user's PRs with clone/session status
+  // GET /api/prs - List current user's PRs with clone/session status (cached)
   app.get('/api/prs', authMiddleware, async (req: Request, res: Response) => {
     try {
       // Get current GitHub user from auth middleware
       const currentUser = (req as any).githubUser;
 
-      // Get user's PRs from GitHub
-      const allPRs = await github.listPRs(config.repoName, {
-        state: 'open',
-        author: currentUser
-      });
+      // Get user's PRs from cache
+      const allPRs = await prCache.get(currentUser);
 
       // Get all sessions from cache
       const sessions = await sessionCache.get();
@@ -302,6 +311,26 @@ export function setupAPI(app: Express, services: APIServices, authMiddleware: Re
       console.error('Error listing PRs:', error);
       res.status(500).json({
         error: 'Failed to list PRs',
+        message: error.message
+      });
+    }
+  });
+
+  // POST /api/prs/refresh - Trigger PR cache refresh (called on page load)
+  app.post('/api/prs/refresh', authMiddleware, async (req: Request, res: Response) => {
+    try {
+      const currentUser = (req as any).githubUser;
+
+      // Trigger background refresh without waiting
+      prCache.refresh(currentUser).catch(error => {
+        console.error('Background PR cache refresh failed:', error);
+      });
+
+      res.json({ success: true, message: 'PR cache refresh triggered' });
+    } catch (error: any) {
+      console.error('Error triggering PR cache refresh:', error);
+      res.status(500).json({
+        error: 'Failed to trigger PR cache refresh',
         message: error.message
       });
     }
