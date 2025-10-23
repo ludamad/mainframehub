@@ -27,10 +27,18 @@ export class GitService {
 
   getBranch(repoPath: string): string {
     try {
-      return execSync('git rev-parse --abbrev-ref HEAD', {
+      const branch = execSync('git rev-parse --abbrev-ref HEAD', {
         cwd: repoPath,
         encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe'], // Suppress stderr
       }).trim();
+
+      // If HEAD is detached, git returns "HEAD" - this is not a real branch
+      if (branch === 'HEAD') {
+        throw new Error('HEAD is in detached state');
+      }
+
+      return branch;
     } catch (error: any) {
       throw new Error(`Failed to get branch: ${error.message}`);
     }
@@ -42,6 +50,7 @@ export class GitService {
       const porcelain = execSync('git status --porcelain', {
         cwd: repoPath,
         encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe'], // Suppress stderr
       });
       const isDirty = porcelain.trim().length > 0;
 
@@ -52,6 +61,7 @@ export class GitService {
         const revList = execSync('git rev-list --left-right --count @{u}...HEAD', {
           cwd: repoPath,
           encoding: 'utf-8',
+          stdio: ['pipe', 'pipe', 'pipe'], // Suppress stderr (no upstream errors)
         }).trim();
         const [behindStr, aheadStr] = revList.split('\t');
         behind = parseInt(behindStr, 10) || 0;

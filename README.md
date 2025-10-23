@@ -49,6 +49,65 @@ Create `mfh.config.json` in your project or `~/.mfh.config.json`:
 }
 ```
 
+## Interfaces
+
+MainframeHub provides three interfaces with the same functionality:
+
+### 1. TUI (Terminal UI) - **Recommended for local development**
+
+Full-featured terminal interface with mouse support and native tmux integration.
+
+```bash
+npm run tui
+```
+
+**Features:**
+- 🖱️ Mouse-based navigation
+- ⌨️ Keyboard shortcuts (1-4 for tabs, q to quit)
+- 🚀 Direct service integration (no HTTP overhead)
+- ⚡ Native tmux attachment (no WebSocket)
+- 📋 All web app functionality
+
+**Views:**
+- Sessions - Browse and attach to sessions
+- My PRs - Setup and manage your PRs
+- Branches - Create PRs from branches
+- New PR - Create PRs with Claude
+
+See [tui/README.md](tui/README.md) for details.
+
+### 2. Web UI
+
+Browser-based interface accessible from anywhere.
+
+```bash
+npm run web
+# Open http://localhost:3000
+```
+
+**Features:**
+- 🌐 Remote access
+- 📱 Works in any browser
+- 👥 Multi-user support
+- 🔒 GitHub token auth
+- 📊 Same functionality as TUI
+
+### 3. CLI
+
+Traditional command-line interface for scripting.
+
+```bash
+mfh list
+mfh new "description"
+mfh setup 123
+mfh attach session-id
+```
+
+**Best for:**
+- Automation and scripts
+- CI/CD integration
+- Quick one-off commands
+
 ## Usage
 
 ### List all sessions

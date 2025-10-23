@@ -15,6 +15,6 @@
     "declarationMap": true,
     "sourceMap": true
   },
-  "include": ["src/**/*", "web/server/**/*"],
+  "include": ["src/**/*", "web/server/**/*", "tui/**/*"],
   "exclude": ["node_modules", "dist", "tests", "web/static/**/*", "web/tests/**/*"]
 }
