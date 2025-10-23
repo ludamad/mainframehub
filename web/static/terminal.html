@@ -488,9 +488,11 @@
     term.open(document.getElementById('terminal'));
     fitAddon.fit();
 
-    // Connect WebSocket with terminal size and token
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const ws = new WebSocket(`${protocol}//${window.location.host}/terminal?session=${sessionId}&token=${encodeURIComponent(githubToken)}&cols=${term.cols}&rows=${term.rows}`);
+    // WebSocket connection management
+    let ws = null;
+    let shouldReconnect = true;
+    let isIntentionalClose = false;
+    let dataHandler = null;
 
     // Dynamic resize on window change
     let resizeTimeout;
@@ -498,7 +500,7 @@
       clearTimeout(resizeTimeout);
       resizeTimeout = setTimeout(() => {
         fitAddon.fit();
-        if (ws.readyState === WebSocket.OPEN) {
+        if (ws && ws.readyState === WebSocket.OPEN) {
           ws.send(JSON.stringify({
             type: 'resize',
             cols: term.cols,
@@ -514,7 +516,7 @@
         clearTimeout(resizeTimeout);
         resizeTimeout = setTimeout(() => {
           fitAddon.fit();
-          if (ws.readyState === WebSocket.OPEN) {
+          if (ws && ws.readyState === WebSocket.OPEN) {
             ws.send(JSON.stringify({
               type: 'resize',
               cols: term.cols,
@@ -528,61 +530,100 @@
     // Focus terminal
     term.focus();
 
-    ws.onopen = () => {
-      status.textContent = 'CONNECTED';
-      status.className = 'connected';
-    };
+    function connectWebSocket() {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        return; // Already connected
+      }
 
-    ws.onmessage = (event) => {
-      const message = JSON.parse(event.data);
+      status.textContent = 'CONNECTING...';
+      status.className = '';
 
-      switch (message.type) {
-        case 'output':
-          term.write(message.data);
-          break;
-        case 'exit':
-          term.writeln(`\r\n\r\n[SESSION EXITED: ${message.exitCode}]`);
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      ws = new WebSocket(`${protocol}//${window.location.host}/terminal?session=${sessionId}&token=${encodeURIComponent(githubToken)}&cols=${term.cols}&rows=${term.rows}`);
+
+      ws.onopen = () => {
+        status.textContent = 'CONNECTED';
+        status.className = 'connected';
+        isIntentionalClose = false;
+      };
+
+      ws.onmessage = (event) => {
+        const message = JSON.parse(event.data);
+
+        switch (message.type) {
+          case 'output':
+            term.write(message.data);
+            break;
+          case 'exit':
+            term.writeln(`\r\n\r\n[SESSION EXITED: ${message.exitCode}]`);
+            status.textContent = 'DISCONNECTED';
+            status.className = 'error';
+            isIntentionalClose = true;
+            shouldReconnect = false;
+            ws.close();
+            break;
+          case 'ready':
+            // Remove old data handler if exists
+            if (dataHandler) {
+              dataHandler.dispose();
+            }
+            // Attach new data handler
+            dataHandler = term.onData((data) => {
+              if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: 'input', data }));
+              }
+            });
+            // Fetch git status on connection
+            fetchGitStatus();
+            break;
+        }
+      };
+
+      ws.onerror = (error) => {
+        console.error('WebSocket error:', error);
+        status.textContent = 'CONNECTION ERROR';
+        status.className = 'error';
+      };
+
+      ws.onclose = () => {
+        if (!isIntentionalClose && status.className !== 'error') {
+          term.writeln('\r\n\r\n[CONNECTION CLOSED]');
           status.textContent = 'DISCONNECTED';
           status.className = 'error';
-          ws.close();
-          break;
-        case 'ready':
-          term.onData((data) => {
-            ws.send(JSON.stringify({ type: 'input', data }));
-          });
-          break;
-      }
-    };
+        }
+      };
+    }
 
     // Handle terminal resize
     term.onResize(({ cols, rows }) => {
-      if (ws.readyState === WebSocket.OPEN) {
+      if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ type: 'resize', cols, rows }));
       }
     });
 
-    ws.onerror = (error) => {
-      console.error('WebSocket error:', error);
-      status.textContent = 'CONNECTION ERROR';
-      status.className = 'error';
-    };
+    // Initial connection
+    connectWebSocket();
 
-    ws.onclose = () => {
-      if (status.className !== 'error') {
-        term.writeln('\r\n\r\n[CONNECTION CLOSED]');
-        status.textContent = 'DISCONNECTED';
-        status.className = 'error';
+    // Auto-reconnect on window focus if disconnected
+    window.addEventListener('focus', () => {
+      if (shouldReconnect && ws && ws.readyState !== WebSocket.OPEN) {
+        term.writeln('\r\n[RECONNECTING...]');
+        connectWebSocket();
       }
-    };
+    });
 
     // Cleanup on page unload
     window.addEventListener('beforeunload', () => {
-      ws.close();
+      isIntentionalClose = true;
+      shouldReconnect = false;
+      if (ws) {
+        ws.close();
+      }
     });
 
     // Send Enter key
     function sendEnter() {
-      if (ws.readyState === WebSocket.OPEN) {
+      if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ type: 'input', data: '\r' }));
         term.focus();
       }
@@ -590,7 +631,7 @@
 
     // Send Escape key
     function sendEscape() {
-      if (ws.readyState === WebSocket.OPEN) {
+      if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ type: 'input', data: '\x1b' }));
         term.focus();
       }
@@ -598,7 +639,7 @@
 
     // Send Ctrl+C
     function sendCtrlC() {
-      if (ws.readyState === WebSocket.OPEN) {
+      if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ type: 'input', data: '\x03' }));
         term.focus();
       }
@@ -622,7 +663,7 @@
       event.preventDefault();
       const text = document.getElementById('paste-text').value;
       const sendEnter = document.getElementById('paste-send-enter').checked;
-      if (text && ws.readyState === WebSocket.OPEN) {
+      if (text && ws && ws.readyState === WebSocket.OPEN) {
         // Send the text, optionally followed by Enter
         const dataToSend = sendEnter ? text + '\r' : text;
         ws.send(JSON.stringify({ type: 'input', data: dataToSend }));
@@ -683,12 +724,8 @@
       branchStatusDiv.innerHTML = statusHtml;
     }
 
-    // Fetch git status initially when connected
-    ws.addEventListener('open', () => {
-      fetchGitStatus();
-      // Refresh git status every 30 seconds
-      setInterval(fetchGitStatus, 30000);
-    });
+    // Refresh git status every 30 seconds
+    setInterval(fetchGitStatus, 30000);
   </script>
 </body>
 </html>

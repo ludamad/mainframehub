@@ -393,6 +393,28 @@ body::before {
   margin-top: 2px;
 }
 
+.session-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.session-github-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--term-fg);
+  transition: all 0.2s;
+  opacity: 0.7;
+  text-decoration: none;
+}
+
+.session-github-btn:hover {
+  color: var(--term-bright);
+  opacity: 1;
+  transform: scale(1.1);
+}
+
 .session-status-indicator {
   color: var(--term-dim);
   font-size: 1.2em;

@@ -10,6 +10,7 @@ import { GitService } from '../../src/services/git.js';
 import { GitHubService } from '../../src/services/github.js';
 import { ClaudeService } from '../../src/services/claude.js';
 import { DiscoveryService } from '../../src/services/discovery.js';
+import { SessionCacheService } from '../../src/services/session-cache.js';
 import { PRService } from '../../src/services/pr-service.js';
 import { ClaudeHandoverService } from '../../src/services/handover.js';
 import { readFileSync } from 'fs';
@@ -38,6 +39,7 @@ export function createWebServer(options: ServerOptions = {}) {
   const claude = new ClaudeService();
   const handover = new ClaudeHandoverService(tmux);
   const discovery = new DiscoveryService(tmux, git, github, config.sessionPrefix);
+  const sessionCache = new SessionCacheService(discovery, 30000); // 30s TTL
   const prService = new PRService(tmux, git, github, claude, handover, config);
 
   // Create Express app
@@ -56,7 +58,7 @@ export function createWebServer(options: ServerOptions = {}) {
   const authMiddleware = requireAuth(config.repo);
 
   // Setup API routes (protected by auth middleware)
-  setupAPI(app, { discovery, prService, github, config }, authMiddleware);
+  setupAPI(app, { discovery, sessionCache, prService, github, config, configPath }, authMiddleware);
 
   // Setup Terminal WebSocket (will handle auth internally)
   const terminalWss = setupTerminalWebSocket(server, config.repo);

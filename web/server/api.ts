@@ -1,34 +1,37 @@
 import { Express, Request, Response, RequestHandler } from 'express';
 import { DiscoveryService } from '../../src/services/discovery.js';
+import { SessionCacheService } from '../../src/services/session-cache.js';
 import { PRService } from '../../src/services/pr-service.js';
 import type { PullRequest } from '../../src/services/github.js';
+import { writeFileSync } from 'fs';
 
 interface APIServices {
   discovery: DiscoveryService;
+  sessionCache: SessionCacheService;
   prService: PRService;
   github: any;
   config: any;
+  configPath: string;
 }
 
 interface UserSettings {
   dangerouslySkipPermissions?: boolean;
 }
 
-// In-memory user settings storage (per user)
-const userSettings = new Map<string, UserSettings>();
-
-// Export function to get user settings
-export function getUserSettings(username: string): UserSettings {
-  return userSettings.get(username) || {};
+// Export function to get user settings from config
+export function getUserSettings(config: any): UserSettings {
+  return {
+    dangerouslySkipPermissions: config.dangerouslySkipPermissions ?? false
+  };
 }
 
 export function setupAPI(app: Express, services: APIServices, authMiddleware: RequestHandler) {
-  const { discovery, prService, github, config } = services;
+  const { discovery, sessionCache, prService, github, config, configPath } = services;
 
-  // GET /api/discover - List all sessions with PR info
+  // GET /api/discover - List all sessions with PR info (cached)
   app.get('/api/discover', authMiddleware, async (req: Request, res: Response) => {
     try {
-      const states = await discovery.discover();
+      const states = await sessionCache.get();
       res.json({
         sessions: states.map(state => ({
           sessionId: state.session.id,
@@ -64,6 +67,23 @@ export function setupAPI(app: Express, services: APIServices, authMiddleware: Re
     }
   });
 
+  // POST /api/discover/refresh - Trigger cache refresh (called on page load)
+  app.post('/api/discover/refresh', authMiddleware, async (req: Request, res: Response) => {
+    try {
+      // Trigger background refresh without waiting
+      sessionCache.refresh().catch(error => {
+        console.error('Background cache refresh failed:', error);
+      });
+      res.json({ success: true, message: 'Cache refresh triggered' });
+    } catch (error: any) {
+      console.error('Error triggering cache refresh:', error);
+      res.status(500).json({
+        error: 'Failed to trigger cache refresh',
+        message: error.message
+      });
+    }
+  });
+
   // POST /api/new - Create new PR + session
   app.post('/api/new', authMiddleware, async (req: Request, res: Response) => {
     try {
@@ -77,8 +97,8 @@ export function setupAPI(app: Express, services: APIServices, authMiddleware: Re
         });
       }
 
-      // Get user settings
-      const settings = getUserSettings(currentUser);
+      // Get user settings from config
+      const settings = getUserSettings(config);
 
       const result = await prService.createNew({
         prompt: prompt.trim(),
@@ -124,8 +144,8 @@ export function setupAPI(app: Express, services: APIServices, authMiddleware: Re
         });
       }
 
-      // Get user settings
-      const settings = getUserSettings(currentUser);
+      // Get user settings from config
+      const settings = getUserSettings(config);
 
       const result = await prService.setupExisting(prNumber, settings.dangerouslySkipPermissions);
 
@@ -173,8 +193,8 @@ export function setupAPI(app: Express, services: APIServices, authMiddleware: Re
         });
       }
 
-      // Get user settings
-      const settings = getUserSettings(currentUser);
+      // Get user settings from config
+      const settings = getUserSettings(config);
 
       const result = await prService.createFromBranch({
         branchName: branchName.trim(),
@@ -246,8 +266,8 @@ export function setupAPI(app: Express, services: APIServices, authMiddleware: Re
         author: currentUser
       });
 
-      // Get all sessions
-      const sessions = await discovery.discover();
+      // Get all sessions from cache
+      const sessions = await sessionCache.get();
 
       // Match PRs with sessions/clones
       const prsWithStatus = allPRs.map((pr: PullRequest) => {
@@ -389,8 +409,8 @@ export function setupAPI(app: Express, services: APIServices, authMiddleware: Re
       const { sessionId } = req.params;
       const { spawn } = await import('child_process');
 
-      // Get session to find working directory
-      const states = await discovery.discover();
+      // Get session to find working directory from cache
+      const states = await sessionCache.get();
       const state = states.find(s => s.session.id === sessionId);
 
       if (!state || !state.session.workingDir) {
@@ -464,11 +484,10 @@ export function setupAPI(app: Express, services: APIServices, authMiddleware: Re
     }
   });
 
-  // GET /api/settings - Get user settings
+  // GET /api/settings - Get user settings from config
   app.get('/api/settings', authMiddleware, (req: Request, res: Response) => {
     try {
-      const currentUser = (req as any).githubUser;
-      const settings = userSettings.get(currentUser) || {};
+      const settings = getUserSettings(config);
       res.json(settings);
     } catch (error: any) {
       console.error('Error getting settings:', error);
@@ -479,18 +498,20 @@ export function setupAPI(app: Express, services: APIServices, authMiddleware: Re
     }
   });
 
-  // POST /api/settings - Update user settings
+  // POST /api/settings - Update user settings in config file
   app.post('/api/settings', authMiddleware, (req: Request, res: Response) => {
     try {
-      const currentUser = (req as any).githubUser;
       const { dangerouslySkipPermissions } = req.body;
 
-      const settings: UserSettings = {};
+      // Update config object
       if (typeof dangerouslySkipPermissions === 'boolean') {
-        settings.dangerouslySkipPermissions = dangerouslySkipPermissions;
+        config.dangerouslySkipPermissions = dangerouslySkipPermissions;
       }
 
-      userSettings.set(currentUser, settings);
+      // Write updated config back to file
+      writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf-8');
+
+      const settings = getUserSettings(config);
       res.json({ success: true, settings });
     } catch (error: any) {
       console.error('Error saving settings:', error);
