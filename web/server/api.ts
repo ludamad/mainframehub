@@ -269,21 +269,57 @@ export function setupAPI(app: Express, services: APIServices, authMiddleware: Re
   // GET /api/prs - List current user's PRs with clone/session status (cached)
   app.get('/api/prs', authMiddleware, async (req: Request, res: Response) => {
     try {
+      const { existsSync, readdirSync, statSync } = await import('fs');
+      const { join } = await import('path');
+      const { execSync } = await import('child_process');
+
       // Get current GitHub user from auth middleware
       const currentUser = (req as any).githubUser;
 
-      // Get user's PRs from cache
-      const allPRs = await prCache.get(currentUser);
+      // Get user's open PRs from cache
+      const openPRs = await prCache.get(currentUser);
 
-      // Get all sessions from cache
-      const sessions = await sessionCache.get();
+      // List all clone directories
+      const clones = new Map<string, { path: string; prNumber: number | null }>();
+      if (existsSync(config.clonesDir)) {
+        const dirs = readdirSync(config.clonesDir);
+        for (const dir of dirs) {
+          const fullPath = join(config.clonesDir, dir);
+          if (statSync(fullPath).isDirectory()) {
+            // Extract PR number from directory name (e.g., "pr-123" -> 123)
+            const match = dir.match(/^pr-(\d+)$/);
+            const prNumber = match ? parseInt(match[1], 10) : null;
+            clones.set(dir, { path: fullPath, prNumber });
+          }
+        }
+      }
 
-      // Match PRs with sessions/clones
-      const prsWithStatus = allPRs.map((pr: PullRequest) => {
+      // Get all active tmux sessions
+      const activeSessions = new Set<string>();
+      try {
+        const tmuxList = execSync('tmux list-sessions -F "#{session_name}"', {
+          encoding: 'utf-8',
+          stdio: ['pipe', 'pipe', 'pipe']
+        });
+        tmuxList.trim().split('\n').forEach(name => {
+          if (name) activeSessions.add(name);
+        });
+      } catch (e) {
+        // No sessions or tmux not running
+      }
+
+      // Match open PRs with clones and sessions
+      const openPRsWithStatus = openPRs.map((pr: PullRequest) => {
+        const cloneName = `pr-${pr.number}`;
         const sessionId = `${config.sessionPrefix}${pr.number}`;
-        const session = sessions.find(s => s.session.id === sessionId);
-        const hasClone = !!session;
-        const clonePath = session ? session.session.workingDir : null;
+        const clone = clones.get(cloneName);
+        const hasClone = !!clone;
+        const hasSession = hasClone && activeSessions.has(sessionId);
+
+        if (clone) {
+          // Remove from clones map so we can find orphaned clones later
+          clones.delete(cloneName);
+        }
 
         return {
           pr: {
@@ -295,17 +331,48 @@ export function setupAPI(app: Express, services: APIServices, authMiddleware: Re
             branch: pr.branch,
             baseBranch: pr.baseBranch
           },
-          session: session ? {
-            id: session.session.id,
-            workingDir: session.session.workingDir
-          } : null,
+          sessionId,
+          cloneName,
           hasClone,
-          clonePath
+          hasSession,
+          clonePath: clone?.path || null
         };
       });
 
+      // For remaining clones (closed PRs or orphaned), fetch PR info from GitHub
+      const closedPRsWithClones: any[] = [];
+      for (const [cloneName, clone] of clones.entries()) {
+        if (clone.prNumber) {
+          try {
+            const pr = await github.getPR(config.repoName, clone.prNumber);
+            if (pr.state === 'closed') {
+              const sessionId = `${config.sessionPrefix}${clone.prNumber}`;
+              const hasSession = activeSessions.has(sessionId);
+              closedPRsWithClones.push({
+                pr: {
+                  number: pr.number,
+                  title: pr.title,
+                  url: pr.url,
+                  state: pr.state,
+                  isDraft: pr.isDraft,
+                  branch: pr.branch,
+                  baseBranch: pr.baseBranch
+                },
+                sessionId,
+                cloneName,
+                hasClone: true,
+                hasSession,
+                clonePath: clone.path
+              });
+            }
+          } catch (e) {
+            // PR might have been deleted, skip it
+          }
+        }
+      }
+
       res.json({
-        prs: prsWithStatus
+        prs: [...openPRsWithStatus, ...closedPRsWithClones]
       });
     } catch (error: any) {
       console.error('Error listing PRs:', error);
@@ -331,6 +398,47 @@ export function setupAPI(app: Express, services: APIServices, authMiddleware: Re
       console.error('Error triggering PR cache refresh:', error);
       res.status(500).json({
         error: 'Failed to trigger PR cache refresh',
+        message: error.message
+      });
+    }
+  });
+
+  // DELETE /api/clones/:cloneName - Delete a clone directory
+  app.delete('/api/clones/:cloneName', authMiddleware, async (req: Request, res: Response) => {
+    try {
+      const { cloneName } = req.params;
+      const { existsSync, rmSync } = await import('fs');
+      const { join } = await import('path');
+      const { execSync } = await import('child_process');
+
+      // Validate clone name format
+      if (!/^pr-\d+$/.test(cloneName)) {
+        return res.status(400).json({ error: 'Invalid clone name format' });
+      }
+
+      const clonePath = join(config.clonesDir, cloneName);
+
+      if (!existsSync(clonePath)) {
+        return res.status(404).json({ error: 'Clone not found' });
+      }
+
+      // Check if there's an active session and kill it
+      try {
+        execSync(`tmux kill-session -t "${cloneName}"`, {
+          stdio: ['pipe', 'pipe', 'pipe']
+        });
+      } catch (e) {
+        // Session doesn't exist or already killed, that's fine
+      }
+
+      // Delete the clone directory
+      rmSync(clonePath, { recursive: true, force: true });
+
+      res.json({ success: true, message: `Clone ${cloneName} deleted` });
+    } catch (error: any) {
+      console.error('Error deleting clone:', error);
+      res.status(500).json({
+        error: 'Failed to delete clone',
         message: error.message
       });
     }

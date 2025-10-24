@@ -106,12 +106,15 @@ export class PRService {
     const { renameSync } = await import('fs');
     renameSync(tempClonePath, clonePath);
 
-    console.log('[8/8] Creating tmux session...');
+    console.log('[8/8] Creating or attaching to tmux session...');
     const sessionId = `${this.config.sessionPrefix}${pr.number}`;
-    const session = await this.tmux.create({
-      id: sessionId,
-      workingDir: clonePath,
-    });
+    let session = await this.tmux.get(sessionId);
+    if (!session) {
+      session = await this.tmux.create({
+        id: sessionId,
+        workingDir: clonePath,
+      });
+    }
 
     await this.handover.initialize(sessionId, {
       prNumber: pr.number,
@@ -173,12 +176,15 @@ export class PRService {
       console.log('[2/4] Using existing clone...');
     }
 
-    console.log('[3/4] Creating tmux session...');
+    console.log('[3/4] Creating or attaching to tmux session...');
     const sessionId = `${this.config.sessionPrefix}${pr.number}`;
-    const session = await this.tmux.create({
-      id: sessionId,
-      workingDir: clonePath,
-    });
+    let session = await this.tmux.get(sessionId);
+    if (!session) {
+      session = await this.tmux.create({
+        id: sessionId,
+        workingDir: clonePath,
+      });
+    }
 
     console.log('[4/4] Initializing Claude session...');
     const userPrompt = cloneExists
@@ -235,12 +241,15 @@ export class PRService {
       console.log('[2/4] Using existing clone...');
     }
 
-    console.log('[3/4] Creating tmux session...');
+    console.log('[3/4] Creating or attaching to tmux session...');
     const sessionId = `${this.config.sessionPrefix}${pr.number}`;
-    const session = await this.tmux.create({
-      id: sessionId,
-      workingDir: clonePath,
-    });
+    let session = await this.tmux.get(sessionId);
+    if (!session) {
+      session = await this.tmux.create({
+        id: sessionId,
+        workingDir: clonePath,
+      });
+    }
 
     console.log('[4/4] Initializing Claude session...');
     const userPrompt = cloneExists

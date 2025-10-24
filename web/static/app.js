@@ -18,7 +18,7 @@ document.addEventListener('DOMContentLoaded', () => {
   if (!githubToken) {
     showTokenModal();
   } else {
-    loadSessions();
+    loadPRs();
   }
 
   // Handle browser back/forward
@@ -30,16 +30,14 @@ function handleRoute() {
   const path = window.location.pathname;
 
   // Terminal opens in separate window now, so no /session/ routing
-  if (path === '/my-prs') {
-    showTab('my-prs');
-  } else if (path === '/branches') {
+  if (path === '/branches') {
     showTab('branches');
   } else if (path === '/new-pr') {
     showTab('new-pr');
-  } else if (path === '/sessions' || path === '/') {
-    showTab('sessions');
+  } else if (path === '/my-prs' || path === '/' || path === '') {
+    showTab('my-prs');
   } else {
-    showTab('sessions');
+    showTab('my-prs');
   }
 }
 
@@ -54,7 +52,7 @@ function initTabs() {
     tab.addEventListener('click', () => {
       const tabName = tab.dataset.tab;
       showTab(tabName);
-      navigate(`/${tabName === 'sessions' ? '' : tabName}`);
+      navigate(`/${tabName === 'my-prs' ? '' : tabName}`);
     });
   });
 }
@@ -71,9 +69,7 @@ function showTab(tabName) {
   });
 
   // Load data if needed
-  if (tabName === 'sessions') {
-    loadSessions();
-  } else if (tabName === 'my-prs') {
+  if (tabName === 'my-prs') {
     loadPRs();
   } else if (tabName === 'branches') {
     loadBranches();
@@ -325,16 +321,29 @@ function renderPRs(prs) {
   list.style.display = 'block';
 
   // Group PRs by status
-  const withSessions = prs.filter(item => item.session);
-  const withClones = prs.filter(item => !item.session && item.hasClone);
-  const withoutClones = prs.filter(item => !item.hasClone);
+  const openPRs = prs.filter(item => item.pr.state === 'open');
+  const closedPRs = prs.filter(item => item.pr.state === 'closed');
 
-  const renderPR = (item) => {
-    const { pr, session, hasClone } = item;
-    const hasSession = !!session;
+  const withSessions = openPRs.filter(item => item.hasSession);
+  const withClones = openPRs.filter(item => !item.hasSession && item.hasClone);
+  const withoutClones = openPRs.filter(item => !item.hasClone);
 
-    const statusClass = hasSession ? 'active' : hasClone ? 'has-clone' : 'no-clone';
-    const statusText = hasSession ? 'ACTIVE' : hasClone ? 'HAS CLONE' : 'NO CLONE';
+  const renderPR = (item, isClosed = false) => {
+    const { pr, sessionId, cloneName, hasClone, hasSession } = item;
+
+    const statusClass = isClosed ? 'closed' : hasSession ? 'active' : hasClone ? 'has-clone' : 'no-clone';
+    const statusText = isClosed ? 'CLOSED' : hasSession ? 'ACTIVE' : hasClone ? 'HAS CLONE' : 'NO CLONE';
+
+    let actionButton = '';
+    if (isClosed) {
+      actionButton = `<button class="btn btn-secondary" onclick="deleteClone('${cloneName}', ${pr.number})">DELETE CLONE</button>`;
+    } else if (hasSession) {
+      actionButton = `<button class="btn btn-primary" onclick="openTerminalBySession('${sessionId}')">OPEN TERMINAL</button>`;
+    } else if (hasClone) {
+      actionButton = `<button class="btn btn-primary" onclick="startSession('${sessionId}', ${pr.number})">START SESSION</button>`;
+    } else {
+      actionButton = `<button class="btn btn-primary" onclick="setupPRFromCard(${pr.number})">SETUP + ATTACH</button>`;
+    }
 
     return `
       <div class="pr-item">
@@ -346,10 +355,7 @@ function renderPRs(prs) {
           <div class="pr-status-badge ${statusClass}">${statusText}</div>
         </div>
         <div class="pr-actions">
-          ${hasSession
-            ? `<button class="btn btn-primary" onclick="openTerminalBySession('${session.id}')">OPEN TERMINAL</button>`
-            : `<button class="btn btn-primary" onclick="setupPRFromCard(${pr.number})">SETUP + ATTACH</button>`
-          }
+          ${actionButton}
           <a href="${pr.url}" target="_blank" class="btn btn-secondary">VIEW ON GITHUB</a>
         </div>
         <div class="pr-setup-status" id="setup-status-${pr.number}"></div>
@@ -362,21 +368,28 @@ function renderPRs(prs) {
   if (withSessions.length > 0) {
     html += '<div class="pr-group">';
     html += '<div class="pr-group-title">WITH ACTIVE SESSIONS</div>';
-    html += withSessions.map(renderPR).join('');
+    html += withSessions.map(pr => renderPR(pr, false)).join('');
     html += '</div>';
   }
 
   if (withClones.length > 0) {
     html += '<div class="pr-group">';
     html += '<div class="pr-group-title">WITH CLONES (NO SESSION)</div>';
-    html += withClones.map(renderPR).join('');
+    html += withClones.map(pr => renderPR(pr, false)).join('');
     html += '</div>';
   }
 
   if (withoutClones.length > 0) {
     html += '<div class="pr-group">';
-    html += '<div class="pr-group-title">WITHOUT CLONES</div>';
-    html += withoutClones.map(renderPR).join('');
+    html += '<div class="pr-group-title">NOT SET UP</div>';
+    html += withoutClones.map(pr => renderPR(pr, false)).join('');
+    html += '</div>';
+  }
+
+  if (closedPRs.length > 0) {
+    html += '<div class="pr-group">';
+    html += '<div class="pr-group-title">CLOSED PRs WITH CLONES</div>';
+    html += closedPRs.map(pr => renderPR(pr, true)).join('');
     html += '</div>';
   }
 
@@ -705,6 +718,59 @@ async function handleSetupPR() {
 function openTerminalBySession(sessionId) {
   // Open terminal in new window/tab (token will be read from localStorage)
   window.open(`/terminal.html?session=${sessionId}`, '_blank');
+}
+
+async function startSession(sessionId, prNumber) {
+  try {
+    showToast(`Starting session for PR #${prNumber}...`, 'info');
+
+    // Setup the PR (will reuse existing clone and create/join session)
+    const response = await fetchWithAuth(`/api/setup/${prNumber}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({})
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.message || 'Failed to start session');
+    }
+
+    const data = await response.json();
+    showToast(`Session started for PR #${prNumber}`, 'success');
+
+    // Open terminal
+    openTerminalBySession(sessionId);
+
+    // Refresh PR list
+    setTimeout(() => loadPRs(), 1000);
+  } catch (error) {
+    showToast(`Error starting session: ${error.message}`, 'error');
+  }
+}
+
+async function deleteClone(cloneName, prNumber) {
+  if (!confirm(`Delete clone for PR #${prNumber}? This will remove all local changes.`)) {
+    return;
+  }
+
+  try {
+    showToast(`Deleting clone for PR #${prNumber}...`, 'info');
+
+    const response = await fetchWithAuth(`/api/clones/${cloneName}`, {
+      method: 'DELETE'
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.message || 'Failed to delete clone');
+    }
+
+    showToast(`Clone deleted for PR #${prNumber}`, 'success');
+    loadPRs();
+  } catch (error) {
+    showToast(`Error deleting clone: ${error.message}`, 'error');
+  }
 }
 
 function openTerminal(sessionId) {
