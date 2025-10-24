@@ -311,10 +311,16 @@ export function setupAPI(app: Express, services: APIServices, authMiddleware: Re
       // Match open PRs with clones and sessions
       const openPRsWithStatus = openPRs.map((pr: PullRequest) => {
         const cloneName = `pr-${pr.number}`;
-        const sessionId = `${config.sessionPrefix}${pr.number}`;
+        const newSessionId = `pr-${pr.number}`;
+        const oldSessionId = `${config.sessionPrefix}${pr.number}`;
         const clone = clones.get(cloneName);
         const hasClone = !!clone;
-        const hasSession = hasClone && activeSessions.has(sessionId);
+
+        // Check both new and old session naming conventions
+        const hasNewSession = activeSessions.has(newSessionId);
+        const hasOldSession = activeSessions.has(oldSessionId);
+        const hasSession = hasClone && (hasNewSession || hasOldSession);
+        const sessionId = hasNewSession ? newSessionId : hasOldSession ? oldSessionId : newSessionId;
 
         if (clone) {
           // Remove from clones map so we can find orphaned clones later
@@ -346,8 +352,15 @@ export function setupAPI(app: Express, services: APIServices, authMiddleware: Re
           try {
             const pr = await github.getPR(config.repoName, clone.prNumber);
             if (pr.state === 'closed') {
-              const sessionId = `${config.sessionPrefix}${clone.prNumber}`;
-              const hasSession = activeSessions.has(sessionId);
+              const newSessionId = `pr-${clone.prNumber}`;
+              const oldSessionId = `${config.sessionPrefix}${clone.prNumber}`;
+
+              // Check both new and old session naming conventions
+              const hasNewSession = activeSessions.has(newSessionId);
+              const hasOldSession = activeSessions.has(oldSessionId);
+              const hasSession = hasNewSession || hasOldSession;
+              const sessionId = hasNewSession ? newSessionId : hasOldSession ? oldSessionId : newSessionId;
+
               closedPRsWithClones.push({
                 pr: {
                   number: pr.number,
@@ -422,13 +435,26 @@ export function setupAPI(app: Express, services: APIServices, authMiddleware: Re
         return res.status(404).json({ error: 'Clone not found' });
       }
 
-      // Check if there's an active session and kill it
-      try {
-        execSync(`tmux kill-session -t "${cloneName}"`, {
-          stdio: ['pipe', 'pipe', 'pipe']
-        });
-      } catch (e) {
-        // Session doesn't exist or already killed, that's fine
+      // Check if there's an active session and kill it (try both naming conventions)
+      const prNumber = cloneName.match(/^pr-(\d+)$/)?.[1];
+      if (prNumber) {
+        const newSessionId = `pr-${prNumber}`;
+        const oldSessionId = `${config.sessionPrefix}${prNumber}`;
+
+        try {
+          execSync(`tmux kill-session -t "${newSessionId}"`, {
+            stdio: ['pipe', 'pipe', 'pipe']
+          });
+        } catch (e) {
+          // Session doesn't exist, try old naming
+          try {
+            execSync(`tmux kill-session -t "${oldSessionId}"`, {
+              stdio: ['pipe', 'pipe', 'pipe']
+            });
+          } catch (e2) {
+            // Neither session exists, that's fine
+          }
+        }
       }
 
       // Delete the clone directory

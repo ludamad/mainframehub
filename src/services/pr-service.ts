@@ -107,16 +107,25 @@ export class PRService {
     renameSync(tempClonePath, clonePath);
 
     console.log('[8/8] Creating or attaching to tmux session...');
-    const sessionId = `${this.config.sessionPrefix}${pr.number}`;
-    let session = await this.tmux.get(sessionId);
+    // New naming: pr-X, but check for old naming: mfh-X for backwards compatibility
+    const newSessionId = `pr-${pr.number}`;
+    const oldSessionId = `${this.config.sessionPrefix}${pr.number}`;
+
+    let session = await this.tmux.get(newSessionId);
     if (!session) {
+      // Check for old-style session name
+      session = await this.tmux.get(oldSessionId);
+    }
+    if (!session) {
+      // Create with new naming convention
       session = await this.tmux.create({
-        id: sessionId,
+        id: newSessionId,
         workingDir: clonePath,
       });
     }
 
-    await this.handover.initialize(sessionId, {
+    const activeSessionId = session.id;
+    await this.handover.initialize(activeSessionId, {
       prNumber: pr.number,
       branch: metadata.branchName,
       baseBranch,
@@ -177,11 +186,19 @@ export class PRService {
     }
 
     console.log('[3/4] Creating or attaching to tmux session...');
-    const sessionId = `${this.config.sessionPrefix}${pr.number}`;
-    let session = await this.tmux.get(sessionId);
+    // New naming: pr-X, but check for old naming: mfh-X for backwards compatibility
+    const newSessionId = `pr-${pr.number}`;
+    const oldSessionId = `${this.config.sessionPrefix}${pr.number}`;
+
+    let session = await this.tmux.get(newSessionId);
     if (!session) {
+      // Check for old-style session name
+      session = await this.tmux.get(oldSessionId);
+    }
+    if (!session) {
+      // Create with new naming convention
       session = await this.tmux.create({
-        id: sessionId,
+        id: newSessionId,
         workingDir: clonePath,
       });
     }
@@ -191,7 +208,8 @@ export class PRService {
       ? `Resuming work on PR #${pr.number} from branch ${params.branchName}\n\nThe repository is already cloned and ready. Waiting for your instructions.`
       : `Working on PR from existing branch: ${params.branchName}`;
 
-    await this.handover.initialize(sessionId, {
+    const activeSessionId = session.id;
+    await this.handover.initialize(activeSessionId, {
       prNumber: pr.number,
       branch: params.branchName,
       baseBranch,
@@ -242,11 +260,19 @@ export class PRService {
     }
 
     console.log('[3/4] Creating or attaching to tmux session...');
-    const sessionId = `${this.config.sessionPrefix}${pr.number}`;
-    let session = await this.tmux.get(sessionId);
+    // New naming: pr-X, but check for old naming: mfh-X for backwards compatibility
+    const newSessionId = `pr-${pr.number}`;
+    const oldSessionId = `${this.config.sessionPrefix}${pr.number}`;
+
+    let session = await this.tmux.get(newSessionId);
     if (!session) {
+      // Check for old-style session name
+      session = await this.tmux.get(oldSessionId);
+    }
+    if (!session) {
+      // Create with new naming convention
       session = await this.tmux.create({
-        id: sessionId,
+        id: newSessionId,
         workingDir: clonePath,
       });
     }
@@ -256,7 +282,8 @@ export class PRService {
       ? `Resuming work on PR #${pr.number}: ${pr.title}\n\nThe repository is already cloned and ready. Waiting for your instructions.`
       : `Continue working on: ${pr.title}`;
 
-    await this.handover.initialize(sessionId, {
+    const activeSessionId = session.id;
+    await this.handover.initialize(activeSessionId, {
       prNumber: pr.number,
       branch: pr.branch,
       baseBranch: pr.baseBranch,
