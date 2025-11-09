@@ -22,25 +22,25 @@
     <div id="main-content" class="main-content">
       <!-- Tabs -->
       <div class="tabs">
-        <button class="tab active" data-tab="sessions">SESSIONS</button>
-        <button class="tab" data-tab="my-prs">MY PRs</button>
+        <button class="tab active" data-tab="my-prs">MY PRs</button>
+        <button class="tab" data-tab="clones">CLONES</button>
         <button class="tab" data-tab="branches">BRANCHES</button>
         <button class="tab" data-tab="new-pr">NEW PR</button>
       </div>
 
-      <!-- Tab: Sessions -->
-      <div id="tab-sessions" class="tab-content active">
+      <!-- Tab: Clones -->
+      <div id="tab-clones" class="tab-content">
         <div class="tab-header">
-          <div class="tab-title">ACTIVE SESSIONS</div>
+          <div class="tab-title">CLONED REPOSITORIES</div>
           <div class="tab-actions">
             <button class="btn btn-secondary" onclick="openSetupModal()">SETUP PR</button>
-            <button class="btn btn-primary" onclick="refreshSessions()">REFRESH</button>
+            <button class="btn btn-primary" onclick="refreshClones()">REFRESH</button>
           </div>
         </div>
-        <div id="sessions-loading" class="loading" style="display: none;">LOADING...</div>
-        <div id="sessions-list" class="sessions-list"></div>
-        <div id="sessions-empty" class="empty" style="display: none;">
-          <div class="empty-message">NO SESSIONS FOUND</div>
+        <div id="clones-loading" class="loading" style="display: none;">LOADING...</div>
+        <div id="clones-list" class="sessions-list"></div>
+        <div id="clones-empty" class="empty" style="display: none;">
+          <div class="empty-message">NO CLONES FOUND</div>
           <button class="btn btn-secondary" onclick="showTab('new-pr')">CREATE NEW PR</button>
         </div>
       </div>
@@ -61,7 +61,7 @@
       </div>
 
       <!-- Tab: My PRs -->
-      <div id="tab-my-prs" class="tab-content">
+      <div id="tab-my-prs" class="tab-content active">
         <div class="tab-header">
           <div class="tab-title">MY PULL REQUESTS</div>
           <div class="tab-actions">

@@ -2,6 +2,7 @@ import { Express, Request, Response, RequestHandler } from 'express';
 import { DiscoveryService } from '../../src/services/discovery.js';
 import { SessionCacheService } from '../../src/services/session-cache.js';
 import { PRCacheService } from '../../src/services/pr-cache.js';
+import { BranchCacheService } from '../../src/services/branch-cache.js';
 import { PRService } from '../../src/services/pr-service.js';
 import type { PullRequest } from '../../src/services/github.js';
 import { writeFileSync } from 'fs';
@@ -10,6 +11,7 @@ interface APIServices {
   discovery: DiscoveryService;
   sessionCache: SessionCacheService;
   prCache: PRCacheService;
+  branchCache: BranchCacheService;
   prService: PRService;
   github: any;
   config: any;
@@ -28,7 +30,7 @@ export function getUserSettings(config: any): UserSettings {
 }
 
 export function setupAPI(app: Express, services: APIServices, authMiddleware: RequestHandler) {
-  const { discovery, sessionCache, prCache, prService, github, config, configPath } = services;
+  const { discovery, sessionCache, prCache, branchCache, prService, github, config, configPath } = services;
 
   // GET /api/discover - List all sessions with PR info (cached)
   app.get('/api/discover', authMiddleware, async (req: Request, res: Response) => {
@@ -336,86 +338,40 @@ export function setupAPI(app: Express, services: APIServices, authMiddleware: Re
     }
   });
 
-  // GET /api/branches - List user's branches
+  // GET /api/branches - List user's branches (cached)
   app.get('/api/branches', authMiddleware, async (req: Request, res: Response) => {
     try {
       // Get current GitHub user from auth middleware
       const currentUser = (req as any).githubUser;
-      const { execSync } = await import('child_process');
 
-      // Validate config.repo exists
-      if (!config.repo) {
-        throw new Error('Reference git repository path not configured');
-      }
+      // Get branches from cache
+      const branches = await branchCache.get(currentUser);
 
-      // Get all open PRs to exclude branches that already have PRs
-      const openPRs = await github.listPRs(config.repoName, { state: 'open' });
-      const prBranches = new Set(openPRs.map((pr: any) => pr.branch));
-
-      // Fetch ALL branches from remote in reference git folder
-      try {
-        execSync(`git -C "${config.repo}" fetch --all --prune`, {
-          encoding: 'utf-8',
-          stdio: ['pipe', 'pipe', 'ignore']
-        });
-      } catch (fetchError: any) {
-        throw new Error(`Failed to fetch branches from ${config.repo}: ${fetchError.message}`);
-      }
-
-      // Get all remote branches from the reference git folder
-      const branchOutput = execSync(
-        `git -C "${config.repo}" branch -r --format='%(refname:short)'`,
-        { encoding: 'utf-8' }
-      );
-      const allBranches = branchOutput
-        .trim()
-        .split('\n')
-        .filter(line => line.startsWith('origin/'))
-        .map(line => line.replace('origin/', ''))
-        .filter(line => line && line !== 'HEAD');
-
-      // Get current user's email from token
-      const userEmail = execSync('gh api user --jq .email', { encoding: 'utf-8' }).trim();
-
-      // For each branch, check if the LAST commit is by the current user
-      const userBranches = [];
-      for (const branchName of allBranches) {
-        // Skip branches that already have PRs
-        if (prBranches.has(branchName)) {
-          continue;
-        }
-
-        try {
-          // Get the author email of the last commit on this branch
-          const lastCommitAuthor = execSync(
-            `git -C "${config.repo}" log -1 --format=%ae origin/${branchName} 2>/dev/null`,
-            { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'ignore'] }
-          ).trim();
-
-          // Check if the last commit is by the current user
-          if (lastCommitAuthor === userEmail) {
-            // Check if protected
-            const protectedStatus = execSync(
-              `gh api "repos/${config.repoName}/branches/${branchName}" --jq .protected`,
-              { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'ignore'] }
-            ).trim();
-
-            userBranches.push({
-              name: branchName,
-              protected: protectedStatus === 'true'
-            });
-          }
-        } catch (error) {
-          // Branch might not exist or other error, skip it
-          continue;
-        }
-      }
-
-      res.json({ branches: userBranches });
+      res.json({ branches });
     } catch (error: any) {
       console.error('Error listing branches:', error);
       res.status(500).json({
         error: 'Failed to list branches',
+        message: error.message
+      });
+    }
+  });
+
+  // POST /api/branches/refresh - Trigger branch cache refresh (called on page load)
+  app.post('/api/branches/refresh', authMiddleware, async (req: Request, res: Response) => {
+    try {
+      const currentUser = (req as any).githubUser;
+
+      // Trigger background refresh without waiting
+      branchCache.refresh(currentUser).catch(error => {
+        console.error('Background branch cache refresh failed:', error);
+      });
+
+      res.json({ success: true, message: 'Branch cache refresh triggered' });
+    } catch (error: any) {
+      console.error('Error triggering branch cache refresh:', error);
+      res.status(500).json({
+        error: 'Failed to trigger branch cache refresh',
         message: error.message
       });
     }
@@ -454,6 +410,8 @@ export function setupAPI(app: Express, services: APIServices, authMiddleware: Re
           const proc = spawn('git', args, { cwd: workingDir });
           let output = '';
           proc.stdout.on('data', (data) => output += data.toString());
+          proc.stderr.on('data', () => {}); // Consume stderr to prevent issues
+          proc.on('error', (err) => reject(err));
           proc.on('close', (code) => {
             if (code === 0) {
               resolve(output.trim());
@@ -467,6 +425,8 @@ export function setupAPI(app: Express, services: APIServices, authMiddleware: Re
       // 1. Fetch latest from remote
       await new Promise<void>((resolve, reject) => {
         const proc = spawn('git', ['fetch', 'origin'], { cwd: workingDir });
+        proc.stderr.on('data', () => {}); // Consume stderr
+        proc.on('error', (err) => reject(err));
         proc.on('close', (code) => code === 0 ? resolve() : reject(new Error('git fetch failed')));
       });
 
@@ -490,6 +450,8 @@ export function setupAPI(app: Express, services: APIServices, authMiddleware: Re
       const isAncestor = (ancestor: string, descendant: string): Promise<boolean> => {
         return new Promise((resolve) => {
           const proc = spawn('git', ['merge-base', '--is-ancestor', ancestor, descendant], { cwd: workingDir });
+          proc.stderr.on('data', () => {}); // Consume stderr
+          proc.on('error', () => resolve(false)); // If git fails, treat as not ancestor
           proc.on('close', (code) => resolve(code === 0));
         });
       };
