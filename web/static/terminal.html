@@ -37,39 +37,17 @@
       letter-spacing: 1px;
       color: #ffffff;
     }
-    #branch-status {
-      font-size: 12px;
-      color: #cccccc;
-      letter-spacing: 0.5px;
-      display: flex;
-      gap: 8px;
+    .pr-link-inline {
+      display: inline-flex;
       align-items: center;
-    }
-    .status-indicator {
-      display: inline-block;
-      padding: 2px 8px;
-      border: 1px solid #ffffff;
-      font-size: 11px;
-      letter-spacing: 1px;
-    }
-    .status-indicator.in-sync {
+      gap: 5px;
       color: #ffffff;
-      border-color: #ffffff;
+      text-decoration: none;
+      transition: opacity 0.2s;
     }
-    .status-indicator.ahead {
-      color: #ffffff;
-      border-color: #ffffff;
-      background: rgba(255, 255, 255, 0.1);
-    }
-    .status-indicator.behind {
-      color: #ffffff;
-      border-color: #ffffff;
-      background: rgba(255, 255, 255, 0.1);
-    }
-    .status-indicator.diverged {
-      color: #ffffff;
-      border-color: #ffffff;
-      background: rgba(255, 255, 255, 0.15);
+    .pr-link-inline:hover {
+      opacity: 0.8;
+      text-decoration: underline;
     }
     #status {
       padding: 5px 10px;
@@ -211,10 +189,13 @@
     <div id="header">
       <div id="session-info">
         <a href="/" class="back-link">← BACK</a>
-        <div>
-          <div id="session-name">Loading...</div>
-          <div id="branch-status"></div>
-        </div>
+        <div id="session-name">Loading...</div>
+        <a id="pr-link" href="#" target="_blank" class="pr-link-inline" style="display: none;">
+          <svg viewBox="0 0 16 16" fill="currentColor" style="width: 12px; height: 12px;">
+            <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
+          </svg>
+          <span id="pr-link-text"></span>
+        </a>
       </div>
       <div style="display: flex; gap: 8px; align-items: center;">
         <button class="terminal-btn mobile-enter-btn" onclick="sendEnter()">↵</button>
@@ -573,8 +554,8 @@
                 ws.send(JSON.stringify({ type: 'input', data }));
               }
             });
-            // Fetch git status on connection
-            fetchGitStatus();
+            // Fetch session info on connection
+            fetchSessionInfo();
             break;
         }
       };
@@ -680,10 +661,10 @@
       }
     });
 
-    // Git status fetching and display
-    async function fetchGitStatus() {
+    // Fetch session info including PR
+    async function fetchSessionInfo() {
       try {
-        const response = await fetch(`/api/sessions/${sessionId}/git-status`, {
+        const response = await fetch('/api/discover', {
           headers: {
             'Authorization': `Bearer ${githubToken}`
           }
@@ -694,38 +675,19 @@
         }
 
         const data = await response.json();
-        updateBranchStatus(data);
+        const session = data.sessions.find(s => s.sessionId === sessionId);
+
+        if (session && session.pr) {
+          const prLink = document.getElementById('pr-link');
+          const prLinkText = document.getElementById('pr-link-text');
+          prLink.href = session.pr.url;
+          prLinkText.textContent = `PR #${session.pr.number}`;
+          prLink.style.display = 'inline-flex';
+        }
       } catch (error) {
-        console.error('Failed to fetch git status:', error);
+        console.error('Failed to fetch session info:', error);
       }
     }
-
-    function updateBranchStatus(data) {
-      const branchStatusDiv = document.getElementById('branch-status');
-      if (!data.branch) {
-        branchStatusDiv.textContent = '';
-        return;
-      }
-
-      let statusHtml = `<span>${data.branch}</span>`;
-
-      if (data.status === 'in-sync') {
-        statusHtml += ' <span class="status-indicator in-sync">IN SYNC</span>';
-      } else if (data.status === 'ahead') {
-        statusHtml += ' <span class="status-indicator ahead">↑ PUSH NEEDED</span>';
-      } else if (data.status === 'behind') {
-        statusHtml += ' <span class="status-indicator behind">↓ PULL NEEDED</span>';
-      } else if (data.status === 'diverged') {
-        statusHtml += ' <span class="status-indicator diverged">⇅ DIVERGED</span>';
-      } else if (data.status === 'no-remote') {
-        statusHtml += ' <span class="status-indicator">NO REMOTE</span>';
-      }
-
-      branchStatusDiv.innerHTML = statusHtml;
-    }
-
-    // Refresh git status every 30 seconds
-    setInterval(fetchGitStatus, 30000);
   </script>
 </body>
 </html>
