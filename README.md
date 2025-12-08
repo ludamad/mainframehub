@@ -65,7 +65,6 @@ npm run web
 - 📱 Works in any browser
 - 👥 Multi-user support
 - 🔒 GitHub token auth
-- 📊 Same functionality as TUI
 
 ## Testing
 
