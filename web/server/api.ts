@@ -5,7 +5,8 @@ import { PRCacheService } from '../../src/services/pr-cache.js';
 import { BranchCacheService } from '../../src/services/branch-cache.js';
 import { PRService } from '../../src/services/pr-service.js';
 import type { PullRequest } from '../../src/services/github.js';
-import { writeFileSync } from 'fs';
+import { writeFileSync, readdirSync, existsSync, rmSync, statSync } from 'fs';
+import { join, basename } from 'path';
 
 interface APIServices {
   discovery: DiscoveryService;
@@ -508,6 +509,120 @@ export function setupAPI(app: Express, services: APIServices, authMiddleware: Re
       console.error('Error saving settings:', error);
       res.status(500).json({
         error: 'Failed to save settings',
+        message: error.message
+      });
+    }
+  });
+
+  // GET /api/clones - List all clones in the clones directory
+  app.get('/api/clones', authMiddleware, async (req: Request, res: Response) => {
+    try {
+      const clonesDir = config.clonesDir;
+
+      if (!existsSync(clonesDir)) {
+        return res.json({ clones: [] });
+      }
+
+      const entries = readdirSync(clonesDir, { withFileTypes: true });
+      const cloneDirs = entries.filter(e => e.isDirectory());
+
+      // Get sessions from cache for matching
+      const sessions = await sessionCache.get();
+
+      const clones = cloneDirs.map(dir => {
+        const clonePath = join(clonesDir, dir.name);
+        const stats = statSync(clonePath);
+
+        // Extract PR number from directory name (pr-12345)
+        const prMatch = dir.name.match(/^pr-(\d+)$/);
+        const prNumber = prMatch ? parseInt(prMatch[1]) : null;
+
+        // Find matching session
+        const sessionId = prNumber ? `${config.sessionPrefix}${prNumber}` : null;
+        const session = sessionId ? sessions.find(s => s.session.id === sessionId) : null;
+
+        return {
+          name: dir.name,
+          path: clonePath,
+          prNumber,
+          createdAt: stats.birthtime.toISOString(),
+          modifiedAt: stats.mtime.toISOString(),
+          hasSession: !!session,
+          sessionId: session?.session.id || null,
+          isActive: session?.isActive || false,
+          pr: session?.pr ? {
+            number: session.pr.number,
+            title: session.pr.title,
+            url: session.pr.url,
+            state: session.pr.state,
+            branch: session.pr.branch,
+            baseBranch: session.pr.baseBranch
+          } : null
+        };
+      });
+
+      // Sort by modification time, newest first
+      clones.sort((a, b) => new Date(b.modifiedAt).getTime() - new Date(a.modifiedAt).getTime());
+
+      res.json({ clones });
+    } catch (error: any) {
+      console.error('Error listing clones:', error);
+      res.status(500).json({
+        error: 'Failed to list clones',
+        message: error.message
+      });
+    }
+  });
+
+  // DELETE /api/clones/:cloneName - Delete a clone directory
+  app.delete('/api/clones/:cloneName', authMiddleware, async (req: Request, res: Response) => {
+    try {
+      const { cloneName } = req.params;
+      const clonesDir = config.clonesDir;
+      const clonePath = join(clonesDir, cloneName);
+
+      // Security: ensure cloneName doesn't contain path traversal
+      if (cloneName.includes('..') || cloneName.includes('/')) {
+        return res.status(400).json({
+          error: 'Invalid clone name',
+          message: 'Clone name cannot contain path traversal characters'
+        });
+      }
+
+      // Check if clone exists
+      if (!existsSync(clonePath)) {
+        return res.status(404).json({
+          error: 'Clone not found',
+          message: `Clone "${cloneName}" does not exist`
+        });
+      }
+
+      // Extract PR number and kill associated tmux session if exists
+      const prMatch = cloneName.match(/^pr-(\d+)$/);
+      if (prMatch) {
+        const prNumber = parseInt(prMatch[1]);
+        const sessionId = `${config.sessionPrefix}${prNumber}`;
+
+        // Kill tmux session if it exists
+        try {
+          const { execSync } = await import('child_process');
+          execSync(`tmux kill-session -t "${sessionId}" 2>/dev/null || true`, { encoding: 'utf-8' });
+        } catch {
+          // Session might not exist, ignore
+        }
+      }
+
+      // Delete the clone directory
+      rmSync(clonePath, { recursive: true, force: true });
+
+      res.json({
+        success: true,
+        message: `Clone "${cloneName}" deleted successfully`
+      });
+    } catch (error: any) {
+      console.error(`Error deleting clone ${req.params.cloneName}:`, error);
+      res.status(500).json({
+        error: 'Failed to delete clone',
         message: error.message
       });
     }
