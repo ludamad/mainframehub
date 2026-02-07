@@ -27,6 +27,8 @@ import { setupPR } from './setup-pr';
 import { openPR } from './open-pr';
 import { fixThis } from './fix-this';
 import { mergePR } from './merge-pr';
+import { runSetupWizard } from './setup-wizard';
+import { pickBaseBranch } from './create-pr';
 
 // ============================================================================
 // Types for the collaborators injected from the extension entry point
@@ -47,7 +49,7 @@ export interface ServiceContainer {
       params: { branch: string; title: string; baseBranch?: string },
       onProgress?: ProgressCallback,
     ) => Promise<{ pr: PullRequest; session: TmuxSession; clonePath: string }>;
-    close: (prNumber: number) => Promise<void>;
+    close: (prNumber: number, onProgress?: ProgressCallback) => Promise<void>;
   };
   tmux: {
     list: (prefix: string) => Promise<TmuxSession[]>;
@@ -234,6 +236,13 @@ export function registerCommands(
     await vscode.commands.executeCommand('workbench.action.openSettings', 'mfh');
   });
 
+  reg('mfh.setupWizard', async () => {
+    const success = await runSetupWizard();
+    if (success) {
+      await vscode.commands.executeCommand('workbench.action.restartExtensionHost');
+    }
+  });
+
   reg('mfh.showLog', () => {
     outputChannel.show();
   });
@@ -290,9 +299,14 @@ async function handleCreateFromBranch(
       return;
     }
 
+    const baseBranch = await pickBaseBranch(container.config);
+    if (baseBranch === undefined) {
+      return;
+    }
+
     const { withMfhProgress } = await import('../vscode/progress-adapter');
-    const result = await withMfhProgress('Creating PR from branch', (onProgress) =>
-      container.prService.createFromBranch({ branch, title, baseBranch: container.config.baseBranch }, onProgress),
+    const result = await withMfhProgress(`Creating PR from ${branch}`, (onProgress) =>
+      container.prService.createFromBranch({ branch, title, baseBranch }, onProgress),
     );
 
     treeProvider.refresh();
@@ -638,7 +652,10 @@ async function handleClosePR(
       return;
     }
 
-    await container.prService.close(prStatus.pr.number);
+    const { withMfhProgress: withProgress } = await import('../vscode/progress-adapter');
+    await withProgress(`Closing PR #${prStatus.pr.number}: ${prStatus.pr.title}`, (onProgress) =>
+      container.prService.close(prStatus.pr.number, onProgress),
+    );
     treeProvider.refresh();
 
     await vscode.window.showInformationMessage(

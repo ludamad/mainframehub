@@ -96,7 +96,8 @@ export async function fixThis(
     // Step 4: Create PR with error-aware prompt
     const errorPrompt = buildErrorPrompt(errorText);
 
-    const result = await withMfhProgress('Creating fix PR', (onProgress) =>
+    const shortError = errorText.length > 50 ? errorText.slice(0, 47) + '...' : errorText;
+    const result = await withMfhProgress(`Fixing: ${shortError}`, (onProgress) =>
       container.prService.createNew({ prompt: errorPrompt, baseBranch }, onProgress),
     );
 

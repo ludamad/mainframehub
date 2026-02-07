@@ -99,6 +99,29 @@ export async function activate(
     await vscode.commands.executeCommand('setContext', 'mfh.hasActiveSessions', false);
     await vscode.commands.executeCommand('setContext', 'mfh.hasPRs', false);
 
+    // Listen for config changes — notify when manually configured (wizard handles its own restart)
+    context.subscriptions.push(
+      vscode.workspace.onDidChangeConfiguration((e) => {
+        if (!e.affectsConfiguration('mfh')) {
+          return;
+        }
+        const updated = readConfig();
+        if (updated.repo && updated.clonesDir) {
+          outputChannel.appendLine('[config] Extension is now configured.');
+          vscode.window
+            .showInformationMessage(
+              'MainframeHub is now configured. Restart to activate.',
+              'Restart',
+            )
+            .then((action) => {
+              if (action === 'Restart') {
+                vscode.commands.executeCommand('workbench.action.restartExtensionHost');
+              }
+            });
+        }
+      }),
+    );
+
     outputChannel.appendLine('[activate] Activation complete (not configured).');
     return;
   }

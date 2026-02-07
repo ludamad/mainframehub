@@ -139,7 +139,7 @@ Migrate MainframeHub from a standalone web app (Express + xterm.js) to a **VS Co
 }
 ```
 
-**Status**: Not Started
+**Status**: Complete
 
 ---
 
@@ -236,7 +236,7 @@ Migrate MainframeHub from a standalone web app (Express + xterm.js) to a **VS Co
 - Auto-refresh interval
 - Configuration change listener
 
-**Status**: Not Started
+**Status**: Complete
 
 ---
 
@@ -319,7 +319,7 @@ Migrate MainframeHub from a standalone web app (Express + xterm.js) to a **VS Co
    - On activation, check for closed PRs with existing clones
    - If found: `showInformationMessage("N closed PRs have local clones. [Clean Up All] [Dismiss]")`
 
-**Status**: Not Started
+**Status**: Complete
 
 ---
 
@@ -406,7 +406,7 @@ Migrate MainframeHub from a standalone web app (Express + xterm.js) to a **VS Co
    - Tree view refreshes
    - Status bar updates
 
-**Status**: Not Started
+**Status**: Complete
 
 ---
 

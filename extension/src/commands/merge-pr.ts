@@ -73,8 +73,8 @@ export async function mergePR(
   }
 
   try {
-    await withMfhProgress(`Merging PR #${prStatus.pr.number}`, async (onProgress) => {
-      onProgress('Merging pull request...', 1, 1);
+    await withMfhProgress(`Merging PR #${prStatus.pr.number}: ${prStatus.pr.title}`, async (onProgress) => {
+      onProgress(`${strategy.label}: ${prStatus.pr.branch} → ${prStatus.pr.baseBranch}...`, 1, 1);
       await container.github.mergePR(prStatus.pr.repo, prStatus.pr.number, strategy.method);
     });
 

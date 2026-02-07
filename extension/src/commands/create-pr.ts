@@ -88,7 +88,8 @@ async function executeCreatePR(
   outputChannel: OutputChannel,
 ): Promise<void> {
   try {
-    const result = await withMfhProgress('Creating PR', (onProgress) =>
+    const shortPrompt = prompt.length > 60 ? prompt.slice(0, 57) + '...' : prompt;
+    const result = await withMfhProgress(`Creating PR: ${shortPrompt}`, (onProgress) =>
       container.prService.createNew({ prompt, baseBranch }, onProgress),
     );
 

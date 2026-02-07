@@ -193,13 +193,13 @@ export class ServiceContainer implements vscode.Disposable {
     const prCache = new PRCacheService(
       github,
       config.repoName,
-      config.prCacheTTL,
+      config.prCacheTTL / 60_000,   // config stores ms, constructor expects minutes
       outputChannel,
     );
 
     const sessionCache = new SessionCacheService(
       discovery,
-      config.autoRefreshInterval,
+      config.autoRefreshInterval / 1_000,  // config stores ms, constructor expects seconds
       outputChannel,
     );
 

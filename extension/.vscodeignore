@@ -1,0 +1,8 @@
+src/**
+node_modules/**
+!node_modules/@octokit/**
+*.test.ts
+vitest.config.ts
+tsconfig.json
+.gitignore
+**/*.map
