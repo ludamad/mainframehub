@@ -1,43 +1,455 @@
 {
   "name": "mainframehub",
-  "version": "1.0.0",
-  "description": "Tmux-centric CLI tool for managing PR workflows",
-  "type": "module",
-  "main": "dist/cli.js",
-  "bin": {
-    "mfh": "./dist/cli.js"
+  "displayName": "MainframeHub",
+  "description": "Manage PR-based Claude Code sessions via tmux from VS Code",
+  "version": "0.2.0",
+  "publisher": "mainframehub",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.93.0"
+  },
+  "extensionKind": [
+    "workspace"
+  ],
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onView:mfh.treeView"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "mfh.openDashboard",
+        "title": "MFH: Open Dashboard",
+        "icon": "$(dashboard)"
+      },
+      {
+        "command": "mfh.createPR",
+        "title": "MFH: Create New PR",
+        "icon": "$(add)"
+      },
+      {
+        "command": "mfh.setupPR",
+        "title": "MFH: Setup Existing PR",
+        "icon": "$(cloud-download)"
+      },
+      {
+        "command": "mfh.createFromBranch",
+        "title": "MFH: Create PR from Branch"
+      },
+      {
+        "command": "mfh.openPR",
+        "title": "MFH: Open PR (Quick Pick)",
+        "icon": "$(search)"
+      },
+      {
+        "command": "mfh.fixThis",
+        "title": "MFH: Fix This Error",
+        "icon": "$(bug)"
+      },
+      {
+        "command": "mfh.mergePR",
+        "title": "MFH: Merge PR",
+        "icon": "$(git-merge)"
+      },
+      {
+        "command": "mfh.sendToClaude",
+        "title": "MFH: Send to Claude"
+      },
+      {
+        "command": "mfh.resumeSession",
+        "title": "MFH: Resume Session",
+        "icon": "$(terminal)"
+      },
+      {
+        "command": "mfh.initClaude",
+        "title": "MFH: Initialize Claude in Session",
+        "icon": "$(play)"
+      },
+      {
+        "command": "mfh.closePR",
+        "title": "MFH: Close PR",
+        "icon": "$(close)"
+      },
+      {
+        "command": "mfh.deleteClone",
+        "title": "MFH: Delete Clone",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "mfh.killSession",
+        "title": "MFH: Kill Session",
+        "icon": "$(debug-stop)"
+      },
+      {
+        "command": "mfh.openPRInBrowser",
+        "title": "MFH: Open PR on GitHub",
+        "icon": "$(link-external)"
+      },
+      {
+        "command": "mfh.openCloneFolder",
+        "title": "MFH: Open Clone Folder",
+        "icon": "$(folder-opened)"
+      },
+      {
+        "command": "mfh.addCloneToWorkspace",
+        "title": "MFH: Add Clone to Workspace"
+      },
+      {
+        "command": "mfh.refreshAll",
+        "title": "MFH: Refresh",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "mfh.toggleViewMode",
+        "title": "MFH: Toggle PR/Session View",
+        "icon": "$(list-tree)"
+      },
+      {
+        "command": "mfh.openSettings",
+        "title": "MFH: Open Settings",
+        "icon": "$(gear)"
+      },
+      {
+        "command": "mfh.setupWizard",
+        "title": "MFH: Setup Wizard",
+        "icon": "$(wand)"
+      },
+      {
+        "command": "mfh.showLog",
+        "title": "MFH: Show Log"
+      },
+      {
+        "command": "mfh.cleanupClosedPRs",
+        "title": "MFH: Clean Up Closed PRs"
+      },
+      {
+        "command": "mfh.discover",
+        "title": "MFH: Run Discovery"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "mfh-explorer",
+          "title": "MainframeHub",
+          "icon": "$(terminal)"
+        }
+      ]
+    },
+    "views": {
+      "mfh-explorer": [
+        {
+          "id": "mfh.treeView",
+          "name": "MainframeHub"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "mfh.treeView",
+        "contents": "MainframeHub is not configured.\n\n[Run Setup Wizard](command:mfh.setupWizard)\n\nJust paste your GitHub repo URL — everything else is auto-detected.\n\nRequires: tmux, git, claude CLI.",
+        "when": "!mfh.isConfigured"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "mfh.refreshAll",
+          "when": "view == mfh.treeView",
+          "group": "navigation@1"
+        },
+        {
+          "command": "mfh.createPR",
+          "when": "view == mfh.treeView",
+          "group": "navigation@2"
+        },
+        {
+          "command": "mfh.toggleViewMode",
+          "when": "view == mfh.treeView",
+          "group": "navigation@3"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "mfh.resumeSession",
+          "when": "view == mfh.treeView && viewItem =~ /prWithSession|prDraftWithSession|sessionAttached|sessionDetached/",
+          "group": "inline@1"
+        },
+        {
+          "command": "mfh.setupPR",
+          "when": "view == mfh.treeView && viewItem =~ /prNotSetUp|prDraftNotSetUp/",
+          "group": "inline@1"
+        },
+        {
+          "command": "mfh.openPRInBrowser",
+          "when": "view == mfh.treeView && viewItem =~ /^pr/",
+          "group": "inline@2"
+        },
+        {
+          "command": "mfh.initClaude",
+          "when": "view == mfh.treeView && viewItem =~ /prWithSession|prDraftWithSession|sessionAttached|sessionDetached/",
+          "group": "1_session@1"
+        },
+        {
+          "command": "mfh.sendToClaude",
+          "when": "view == mfh.treeView && viewItem =~ /prWithSession|prDraftWithSession|sessionAttached|sessionDetached/",
+          "group": "1_session@2"
+        },
+        {
+          "command": "mfh.killSession",
+          "when": "view == mfh.treeView && viewItem =~ /prWithSession|prDraftWithSession|sessionAttached|sessionDetached|sessionOrphan|sessionNoGit/",
+          "group": "1_session@3"
+        },
+        {
+          "command": "mfh.mergePR",
+          "when": "view == mfh.treeView && viewItem =~ /prWithSession|prDraftWithSession|prWithClone|prDraftWithClone|prNotSetUp|prDraftNotSetUp/",
+          "group": "2_pr@1"
+        },
+        {
+          "command": "mfh.closePR",
+          "when": "view == mfh.treeView && viewItem =~ /prWithSession|prDraftWithSession|prWithClone|prDraftWithClone|prNotSetUp|prDraftNotSetUp/",
+          "group": "2_pr@2"
+        },
+        {
+          "command": "mfh.openCloneFolder",
+          "when": "view == mfh.treeView && viewItem =~ /prWithSession|prDraftWithSession|prWithClone|prDraftWithClone|prClosed|prDraftClosed/",
+          "group": "3_clone@1"
+        },
+        {
+          "command": "mfh.addCloneToWorkspace",
+          "when": "view == mfh.treeView && viewItem =~ /prWithSession|prDraftWithSession|prWithClone|prDraftWithClone|prClosed|prDraftClosed/",
+          "group": "3_clone@2"
+        },
+        {
+          "command": "mfh.deleteClone",
+          "when": "view == mfh.treeView && viewItem =~ /prWithSession|prDraftWithSession|prWithClone|prDraftWithClone|prClosed|prDraftClosed/",
+          "group": "3_clone@3"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "mfh.fixThis",
+          "when": "editorHasSelection",
+          "group": "1_mfh@1"
+        }
+      ],
+      "terminal/context": [
+        {
+          "command": "mfh.fixThis",
+          "group": "1_mfh@1"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "mfh.createPR",
+          "when": "mfh.isConfigured"
+        },
+        {
+          "command": "mfh.setupPR",
+          "when": "mfh.isConfigured"
+        },
+        {
+          "command": "mfh.createFromBranch",
+          "when": "mfh.isConfigured"
+        },
+        {
+          "command": "mfh.openPR",
+          "when": "mfh.isConfigured"
+        },
+        {
+          "command": "mfh.fixThis",
+          "when": "mfh.isConfigured"
+        },
+        {
+          "command": "mfh.mergePR",
+          "when": "mfh.isConfigured"
+        },
+        {
+          "command": "mfh.sendToClaude",
+          "when": "mfh.isConfigured"
+        },
+        {
+          "command": "mfh.resumeSession",
+          "when": "mfh.isConfigured"
+        },
+        {
+          "command": "mfh.initClaude",
+          "when": "mfh.isConfigured"
+        },
+        {
+          "command": "mfh.closePR",
+          "when": "mfh.isConfigured"
+        },
+        {
+          "command": "mfh.deleteClone",
+          "when": "mfh.isConfigured"
+        },
+        {
+          "command": "mfh.killSession",
+          "when": "mfh.isConfigured"
+        },
+        {
+          "command": "mfh.openPRInBrowser",
+          "when": "mfh.isConfigured"
+        },
+        {
+          "command": "mfh.openCloneFolder",
+          "when": "mfh.isConfigured"
+        },
+        {
+          "command": "mfh.addCloneToWorkspace",
+          "when": "mfh.isConfigured"
+        },
+        {
+          "command": "mfh.refreshAll",
+          "when": "mfh.isConfigured"
+        },
+        {
+          "command": "mfh.toggleViewMode",
+          "when": "mfh.isConfigured"
+        },
+        {
+          "command": "mfh.openDashboard",
+          "when": "mfh.isConfigured"
+        },
+        {
+          "command": "mfh.setupWizard"
+        },
+        {
+          "command": "mfh.openSettings"
+        },
+        {
+          "command": "mfh.showLog"
+        },
+        {
+          "command": "mfh.cleanupClosedPRs",
+          "when": "mfh.isConfigured"
+        },
+        {
+          "command": "mfh.discover",
+          "when": "mfh.isConfigured"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "mfh.openPR",
+        "key": "ctrl+shift+m",
+        "mac": "cmd+shift+m",
+        "when": "mfh.isConfigured"
+      },
+      {
+        "command": "mfh.fixThis",
+        "key": "ctrl+shift+f",
+        "mac": "cmd+shift+f",
+        "when": "mfh.isConfigured"
+      },
+      {
+        "command": "mfh.createPR",
+        "key": "ctrl+shift+n",
+        "mac": "cmd+shift+n",
+        "when": "mfh.isConfigured"
+      }
+    ],
+    "configuration": {
+      "title": "MainframeHub",
+      "properties": {
+        "mfh.repo": {
+          "type": "string",
+          "default": "",
+          "description": "Full git URL of the repository (e.g. https://github.com/owner/repo.git)"
+        },
+        "mfh.repoName": {
+          "type": "string",
+          "default": "",
+          "description": "Repository in owner/repo format. Auto-derived from mfh.repo if empty."
+        },
+        "mfh.referenceGitPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to a local checkout used for branch listing and other reference operations."
+        },
+        "mfh.clonesDir": {
+          "type": "string",
+          "default": "",
+          "description": "Directory where PR clones are stored (e.g. /home/user/clones)."
+        },
+        "mfh.baseBranch": {
+          "type": "string",
+          "default": "main",
+          "description": "Default base branch for new PRs."
+        },
+        "mfh.sessionPrefix": {
+          "type": "string",
+          "default": "pr-",
+          "description": "Prefix for tmux session names (e.g. pr- gives sessions like pr-123)."
+        },
+        "mfh.baseBranchPresets": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "main"
+          ],
+          "description": "Preset base branch choices shown in the Quick Pick when creating PRs."
+        },
+        "mfh.dangerouslySkipPermissions": {
+          "type": "boolean",
+          "default": false,
+          "description": "Pass --dangerously-skip-permissions to Claude. Only enable if you trust the session fully."
+        },
+        "mfh.quickFixMode": {
+          "type": "boolean",
+          "default": false,
+          "description": "Skip the error editing InputBox in Fix This and use gathered text directly."
+        },
+        "mfh.guidelines.branchFormat": {
+          "type": "string",
+          "default": "",
+          "description": "Branch naming convention passed to Claude (e.g. ad/TYPE/short-kebab-case)."
+        },
+        "mfh.guidelines.commitFormat": {
+          "type": "string",
+          "default": "type: description",
+          "markdownDescription": "Commit message convention passed to Claude. Uses [Conventional Commits](https://www.conventionalcommits.org/) format: `type: short imperative description`.\n\nValid types: `feat` (new feature), `fix` (bug fix), `refactor` (restructure without behavior change), `chore` (tooling/config), `docs` (documentation), `test` (adding/fixing tests), `style` (formatting), `perf` (performance), `ci` (CI/CD).\n\nThe description should be lowercase, imperative mood, no period. Examples:\n- `feat: add OAuth login flow`\n- `fix: prevent crash on empty input`\n- `refactor: extract validation into shared util`"
+        },
+        "mfh.autoRefreshInterval": {
+          "type": "number",
+          "default": 30000,
+          "description": "Interval in milliseconds for auto-refreshing session state. Set to 0 to disable.",
+          "minimum": 0
+        },
+        "mfh.prCacheTTL": {
+          "type": "number",
+          "default": 3600000,
+          "description": "Time-to-live in milliseconds for the PR cache. Default is 1 hour (3600000).",
+          "minimum": 0
+        }
+      }
+    }
   },
   "scripts": {
-    "build": "tsc",
-    "test": "jest",
-    "test:web": "playwright test",
-    "dev": "tsc --watch",
-    "web": "node dist/web/server/index.js",
-    "web:mock": "node dist/web/server/index.js --mock"
-  },
-  "keywords": [
-    "tmux",
-    "github",
-    "pr",
-    "workflow",
-    "cli"
-  ],
-  "author": "",
-  "license": "ISC",
-  "dependencies": {
-    "express": "^4.18.0",
-    "node-pty": "^1.0.0",
-    "ws": "^8.16.0"
+    "compile": "npm run compile:ext && npm run compile:webview",
+    "compile:ext": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --sourcemap",
+    "compile:webview": "esbuild src/webview/app.ts --bundle --outfile=dist/webview/app.js --format=iife --platform=browser --sourcemap && cp src/webview/styles.css dist/webview/styles.css",
+    "watch": "npm run compile:ext -- --watch & npm run compile:webview -- --watch",
+    "package": "vsce package",
+    "lint": "tsc --noEmit",
+    "test": "vitest run"
   },
   "devDependencies": {
-    "@playwright/test": "^1.40.0",
-    "@types/express": "^4.17.0",
-    "@types/jest": "^29.5.0",
     "@types/node": "^20.0.0",
-    "@types/ws": "^8.5.0",
-    "jest": "^29.5.0",
-    "ts-jest": "^29.1.0",
-    "typescript": "^5.0.0"
+    "@types/vscode": "^1.93.0",
+    "@vscode/vsce": "^3.0.0",
+    "esbuild": "^0.24.0",
+    "typescript": "^5.5.0",
+    "vitest": "^4.0.18"
   },
-  "packageManager": "yarn@1.22.22+sha512.a6b2f7906b721bba3d67d4aff083df04dad64c399707841b7acf00f6b133b7ac24255f2652fa22ae3534329dc6180534e98d17432037ff6fd140556e2bb3137e"
+  "dependencies": {
+    "@octokit/rest": "^21.0.0"
+  }
 }

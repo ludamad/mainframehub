@@ -1,6 +1,6 @@
 /**
- * Core interfaces for mainframehub
- * All external dependencies are abstracted for full testability
+ * Core interfaces for the MainframeHub VS Code extension.
+ * Single source of truth — every other file imports from here.
  */
 
 // ============================================================================
@@ -12,7 +12,7 @@ export interface PullRequest {
   title: string;
   branch: string;
   baseBranch: string;
-  repo: string;  // 'owner/repo' format
+  repo: string; // 'owner/repo' format
   state: 'OPEN' | 'CLOSED' | 'MERGED';
   url: string;
   author: string;
@@ -29,8 +29,8 @@ export interface TmuxSession {
 }
 
 export interface GitInfo {
-  remote: string;  // Full git URL
-  repo: string;    // 'owner/repo' parsed from remote
+  remote: string; // Full git URL
+  repo: string; // 'owner/repo' parsed from remote
   branch: string;
   isDirty: boolean;
   ahead: number;
@@ -39,13 +39,11 @@ export interface GitInfo {
 
 export interface SessionState {
   session: TmuxSession;
-  workingDir: string;
   gitInfo: GitInfo | null;
   pr: PullRequest | null;
-  // Derived states
-  hasValidGit: boolean;
+  hasGit: boolean;
   hasPR: boolean;
-  isActive: boolean;  // session.attached
+  isActive: boolean; // session.attached
 }
 
 export interface ClaudeMetadata {
@@ -55,309 +53,86 @@ export interface ClaudeMetadata {
 }
 
 // ============================================================================
-// Service Interfaces
+// PR Status (used by tree view)
 // ============================================================================
 
-export interface ITmuxService {
-  /**
-   * List all sessions with given prefix
-   */
-  list(prefix: string): Promise<TmuxSession[]>;
-
-  /**
-   * Get a specific session
-   */
-  get(id: string): Promise<TmuxSession | null>;
-
-  /**
-   * Check if session exists
-   */
-  exists(id: string): Promise<boolean>;
-
-  /**
-   * Create a new session
-   */
-  create(params: {
-    id: string;
-    workingDir: string;
-    command?: string;
-  }): Promise<TmuxSession>;
-
-  /**
-   * Kill a session
-   */
-  kill(id: string): Promise<void>;
-
-  /**
-   * Send keys to a session (for Claude handover)
-   */
-  sendKeys(id: string, keys: string): Promise<void>;
-
-  /**
-   * Attach to a session (blocking)
-   */
-  attach(id: string): Promise<void>;
+export interface PRWithStatus {
+  pr: PullRequest;
+  sessionId: string;
+  cloneName: string;
+  hasClone: boolean;
+  hasSession: boolean;
+  clonePath: string | null;
+  ciStatus?: 'pending' | 'passing' | 'failing' | 'unknown';
 }
 
-export interface IGitService {
-  /**
-   * Get remote URL for a git repo
-   */
-  getRemote(repoPath: string): Promise<string>;
-
-  /**
-   * Get current branch
-   */
-  getBranch(repoPath: string): Promise<string>;
-
-  /**
-   * Get git status (dirty, ahead, behind)
-   */
-  getStatus(repoPath: string): Promise<{
-    isDirty: boolean;
-    ahead: number;
-    behind: number;
-  }>;
-
-  /**
-   * Get full git info for a repo
-   */
-  getInfo(repoPath: string): Promise<GitInfo>;
-
-  /**
-   * Clone a repository
-   */
-  clone(url: string, targetPath: string, options?: {
-    branch?: string;
-    depth?: number;
-  }): Promise<void>;
-
-  /**
-   * Create a branch
-   */
-  createBranch(repoPath: string, branchName: string): Promise<void>;
-
-  /**
-   * Checkout a branch
-   */
-  checkout(repoPath: string, branch: string): Promise<void>;
-
-  /**
-   * Create a commit
-   */
-  commit(repoPath: string, message: string, options?: {
-    allowEmpty?: boolean;
-  }): Promise<void>;
-
-  /**
-   * Push to remote
-   */
-  push(repoPath: string, options?: {
-    setUpstream?: boolean;
-    force?: boolean;
-    branch?: string;
-  }): Promise<void>;
-
-  /**
-   * Fetch from remote
-   */
-  fetch(repoPath: string): Promise<void>;
-}
-
-export interface IGitHubService {
-  /**
-   * List PRs for a repo
-   */
-  listPRs(repo: string, options?: {
-    author?: string;
-    state?: 'open' | 'closed' | 'all';
-  }): Promise<PullRequest[]>;
-
-  /**
-   * Find a PR by repo and branch
-   */
-  findPR(params: {
-    repo: string;
-    branch: string;
-  }): Promise<PullRequest | null>;
-
-  /**
-   * Get a specific PR
-   */
-  getPR(repo: string, number: number): Promise<PullRequest | null>;
-
-  /**
-   * Create a new PR
-   */
-  createPR(params: {
-    repo: string;
-    branch: string;
-    baseBranch: string;
-    title: string;
-    body: string;
-    draft?: boolean;
-  }): Promise<PullRequest>;
-
-  /**
-   * Update a PR
-   */
-  updatePR(repo: string, number: number, updates: {
-    title?: string;
-    body?: string;
-    state?: 'open' | 'closed';
-  }): Promise<void>;
-
-  /**
-   * Close a PR
-   */
-  closePR(repo: string, number: number): Promise<void>;
-}
-
-export interface IClaudeService {
-  /**
-   * Generate PR metadata from user prompt
-   */
-  generateMetadata(prompt: string, options?: {
-    guidelines?: string;
-    model?: 'haiku' | 'sonnet';
-  }): Promise<ClaudeMetadata>;
-
-  /**
-   * Check if Claude CLI is available
-   */
-  isAvailable(): Promise<boolean>;
-}
-
-export interface IFileSystem {
-  /**
-   * Check if path exists
-   */
-  exists(path: string): Promise<boolean>;
-
-  /**
-   * Create directory
-   */
-  mkdir(path: string, options?: { recursive?: boolean }): Promise<void>;
-
-  /**
-   * Remove directory
-   */
-  rmdir(path: string, options?: { recursive?: boolean }): Promise<void>;
-
-  /**
-   * Read directory
-   */
-  readdir(path: string): Promise<string[]>;
+export interface GroupedPRs {
+  activeSession: PRWithStatus[];
+  hasClone: PRWithStatus[];
+  notSetUp: PRWithStatus[];
+  closedWithClone: PRWithStatus[];
 }
 
 // ============================================================================
 // Configuration
 // ============================================================================
 
-export interface Config {
-  repo: string;  // Full git URL
-  repoName: string;  // 'owner/repo' format
+export interface ExtensionConfig {
+  repo: string; // Full git URL
+  repoName: string; // 'owner/repo' format (auto-derived if empty)
   referenceGitPath: string;
   clonesDir: string;
   baseBranch: string;
   sessionPrefix: string;
-  currentUser?: string;
-  guidelines?: {
+  baseBranchPresets: string[];
+  dangerouslySkipPermissions: boolean;
+  quickFixMode: boolean;
+  guidelines: {
     branchFormat?: string;
     commitFormat?: string;
   };
+  autoRefreshInterval: number; // milliseconds
+  prCacheTTL: number; // milliseconds
 }
 
 // ============================================================================
-// Session Discovery Service
+// Progress
 // ============================================================================
 
-export interface ISessionDiscoveryService {
-  /**
-   * Discover all sessions and their states
-   * This is the core tmux-centric operation
-   */
-  discover(): Promise<SessionState[]>;
+export type ProgressCallback = (
+  step: string,
+  current: number,
+  total: number,
+) => void;
 
-  /**
-   * Discover a specific session
-   */
-  discoverOne(sessionId: string): Promise<SessionState | null>;
+// ============================================================================
+// Run infrastructure
+// ============================================================================
+
+export interface RunResult {
+  stdout: string;
+  stderr: string;
+  exitCode: number;
+}
+
+export interface RunOptions {
+  cwd?: string;
+  timeout?: number; // milliseconds, default 30_000
 }
 
 // ============================================================================
-// PR Service
-// ============================================================================
-
-export interface IPRService {
-  /**
-   * Create a new PR with full flow:
-   * 1. Generate metadata with Claude
-   * 2. Create PR on GitHub
-   * 3. Clone repository
-   * 4. Create branch and empty commit
-   * 5. Push
-   * 6. Create tmux session
-   * 7. Initialize Claude session
-   */
-  createNew(params: {
-    prompt: string;
-    baseBranch?: string;
-  }): Promise<{
-    pr: PullRequest;
-    session: TmuxSession;
-    clonePath: string;
-  }>;
-
-  /**
-   * Setup an existing PR:
-   * 1. Clone the PR's branch
-   * 2. Create tmux session
-   */
-  setupExisting(prNumber: number): Promise<{
-    pr: PullRequest;
-    session: TmuxSession;
-    clonePath: string;
-  }>;
-
-  /**
-   * Close a PR and cleanup:
-   * 1. Close PR on GitHub
-   * 2. Kill tmux session
-   * 3. Remove clone directory
-   */
-  close(prNumber: number): Promise<void>;
-}
-
-// ============================================================================
-// Claude Handover Service
-// ============================================================================
-
-export interface IClaudeHandoverService {
-  /**
-   * Initialize Claude session with full context
-   */
-  initialize(sessionId: string, context: {
-    prNumber: number;
-    branch: string;
-    baseBranch: string;
-    userPrompt: string;
-    guidelines?: string;
-  }): Promise<void>;
-}
-
-// ============================================================================
-// Utilities
+// Utility Functions
 // ============================================================================
 
 /**
- * Parse owner/repo from git remote URL
+ * Parse owner/repo from a git remote URL.
+ *
+ * Handles:
+ *   https://github.com/owner/repo.git
+ *   git@github.com:owner/repo.git
+ *   https://github.com/owner/repo
  */
 export function parseRepo(remote: string): string {
-  // Handle various formats:
-  // https://github.com/owner/repo.git
-  // git@github.com:owner/repo.git
-  // https://github.com/owner/repo
   const match = remote.match(/github\.com[:/]([^/]+\/[^/.]+)/);
   if (!match) {
     throw new Error(`Invalid GitHub remote: ${remote}`);
@@ -366,10 +141,19 @@ export function parseRepo(remote: string): string {
 }
 
 /**
- * Parse PR number from session ID
+ * Parse a PR number from a tmux session ID.
+ *
+ * Given prefix "pr-" and session "pr-123", returns 123.
+ * Returns null when the session ID does not match the prefix or the suffix
+ * is not a valid integer.
  */
-export function parsePRNumber(sessionId: string, prefix: string): number | null {
-  if (!sessionId.startsWith(prefix)) return null;
+export function parsePRNumber(
+  sessionId: string,
+  prefix: string,
+): number | null {
+  if (!sessionId.startsWith(prefix)) {
+    return null;
+  }
   const num = parseInt(sessionId.slice(prefix.length), 10);
   return isNaN(num) ? null : num;
 }

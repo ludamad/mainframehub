@@ -1,31 +1,38 @@
 /**
- * Claude service for generating PR metadata
+ * ClaudeService — generates PR metadata (branch name, title, body) by
+ * shelling out to the `claude` CLI.
+ *
+ * Falls back to timestamp-based naming when Claude is unavailable or the
+ * response cannot be parsed.
  */
 
-import { execSync } from 'child_process';
-
-export interface ClaudeMetadata {
-  branchName: string;
-  title: string;
-  body: string;
-}
+import { run, runSafe } from '../lib/run';
+import type { ClaudeMetadata } from '../interfaces';
+import { ClaudeError } from '../errors';
 
 export class ClaudeService {
-  async generateMetadata(prompt: string, options?: {
-    guidelines?: string;
-    model?: 'haiku' | 'sonnet';
-    skipPermissions?: boolean;
-  }): Promise<ClaudeMetadata> {
-    const model = options?.model || 'haiku';
-    const guidelines = options?.guidelines || '';
-    const skipPermissionsFlag = options?.skipPermissions ? ' --dangerously-skip-permissions' : '';
+  /**
+   * Ask Claude to generate branch name, PR title, and PR body from a
+   * free-form task description.
+   *
+   * On failure the method returns a deterministic fallback so callers
+   * never need to handle the error case themselves.
+   */
+  async generateMetadata(
+    prompt: string,
+    opts?: {
+      guidelines?: string;
+      model?: 'haiku' | 'sonnet';
+    },
+  ): Promise<ClaudeMetadata> {
+    const model = opts?.model ?? 'haiku';
+    const guidelines = opts?.guidelines ?? '';
 
     const fullPrompt = `Generate PR metadata from this task:
 
 "${prompt}"
 
-${guidelines ? `Guidelines:\n${guidelines}\n` : ''}
-Create:
+${guidelines ? `Guidelines:\n${guidelines}\n` : ''}Create:
 1. Branch name: ad/TYPE/short-kebab-case
    Types: feat, fix, refactor, test, docs, chore
    Examples: ad/feat/add-auth, ad/fix/null-check
@@ -41,17 +48,20 @@ TITLE: <title>
 BODY: <body>`;
 
     try {
-      const output = execSync(`claude -p "${fullPrompt.replace(/"/g, '\\"')}" --model ${model}${skipPermissionsFlag}`, {
-        encoding: 'utf-8',
-        timeout: 30000,
-      });
+      const output = await run(
+        'claude',
+        ['-p', fullPrompt, '--model', model],
+        { timeout: 30_000 },
+      );
 
       const branchMatch = output.match(/BRANCH:\s*(.+)/);
       const titleMatch = output.match(/TITLE:\s*(.+)/);
       const bodyMatch = output.match(/BODY:\s*(.+)/);
 
       if (!branchMatch || !titleMatch || !bodyMatch) {
-        throw new Error('Failed to parse Claude response');
+        throw new ClaudeError('Failed to parse Claude response', {
+          output,
+        });
       }
 
       return {
@@ -59,9 +69,7 @@ BODY: <body>`;
         title: titleMatch[1].trim().substring(0, 72),
         body: bodyMatch[1].trim(),
       };
-    } catch (error: any) {
-      // Fallback if Claude fails
-      console.warn('Claude generation failed, using fallback');
+    } catch {
       const timestamp = Date.now();
       return {
         branchName: `ad/feat/task-${timestamp}`,
@@ -71,12 +79,11 @@ BODY: <body>`;
     }
   }
 
+  /**
+   * Check whether the `claude` binary is available on PATH.
+   */
   async isAvailable(): Promise<boolean> {
-    try {
-      execSync('which claude', { stdio: 'pipe' });
-      return true;
-    } catch {
-      return false;
-    }
+    const result = await runSafe('which', ['claude']);
+    return result.exitCode === 0;
   }
 }

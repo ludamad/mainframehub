@@ -1,128 +1,107 @@
 /**
- * Session Cache Service
+ * SessionCacheService — caches the output of `DiscoveryService.discover()`
+ * with stale-while-revalidate semantics and a short TTL (default 30 s).
  *
- * Maintains cached session data and serves it quickly.
- * Periodically updates cache in the background to avoid slow API calls.
+ * Behaviour:
+ *   - First call blocks until data arrives (no stale data).
+ *   - Subsequent calls within the TTL return cached data instantly.
+ *   - After the TTL expires, stale data is returned immediately while a
+ *     background refresh runs.
+ *   - `invalidate()` clears the cache and forces a blocking refresh.
  */
 
-import type { DiscoveryService, SessionState } from './discovery.js';
+import type { DiscoveryService } from './discovery';
+import type { SessionState } from '../interfaces';
 
-interface CacheEntry {
-  data: SessionState[];
-  timestamp: number;
+interface Logger {
+  appendLine(value: string): void;
 }
 
 export class SessionCacheService {
-  private cache: CacheEntry | null = null;
-  private updateInProgress = false;
+  private cache: { data: SessionState[]; timestamp: number } | null = null;
   private updatePromise: Promise<SessionState[]> | null = null;
+  private readonly ttlMs: number;
 
   constructor(
     private discovery: DiscoveryService,
-    private ttlMs: number = 30000 // 30 seconds default
-  ) {}
+    ttlSeconds: number,
+    private logger: Logger,
+  ) {
+    this.ttlMs = ttlSeconds * 1_000;
+  }
 
   /**
-   * Get sessions from cache if fresh, otherwise trigger update and return stale data
-   * or wait for fresh data if no cache exists
+   * Return cached sessions.  Triggers a background refresh when stale;
+   * blocks on the very first call.
    */
   async get(): Promise<SessionState[]> {
     const now = Date.now();
 
-    // If cache is fresh, return it immediately
-    if (this.cache && (now - this.cache.timestamp) < this.ttlMs) {
+    if (this.cache && now - this.cache.timestamp < this.ttlMs) {
       return this.cache.data;
     }
 
-    // If update is already in progress, wait for it
-    if (this.updateInProgress && this.updatePromise) {
+    if (this.updatePromise) {
       return this.updatePromise;
     }
 
-    // If we have stale cache, return it and trigger background update
     if (this.cache) {
       this.triggerBackgroundUpdate();
       return this.cache.data;
     }
 
-    // No cache exists, must wait for first load
     return this.refresh();
   }
 
   /**
-   * Force refresh the cache (blocks until complete)
+   * Force a blocking refresh.  Deduplicates concurrent calls.
    */
   async refresh(): Promise<SessionState[]> {
-    // If already updating, wait for that
-    if (this.updateInProgress && this.updatePromise) {
+    if (this.updatePromise) {
       return this.updatePromise;
     }
 
-    this.updateInProgress = true;
     this.updatePromise = this.discovery.discover();
 
     try {
       const data = await this.updatePromise;
-      this.cache = {
-        data,
-        timestamp: Date.now()
-      };
+      this.cache = { data, timestamp: Date.now() };
       return data;
     } finally {
-      this.updateInProgress = false;
       this.updatePromise = null;
     }
   }
 
   /**
-   * Trigger cache update in background without waiting
-   */
-  private triggerBackgroundUpdate(): void {
-    if (this.updateInProgress) {
-      return; // Already updating
-    }
-
-    this.updateInProgress = true;
-    this.updatePromise = this.discovery.discover();
-
-    this.updatePromise
-      .then(data => {
-        this.cache = {
-          data,
-          timestamp: Date.now()
-        };
-      })
-      .catch(error => {
-        console.error('Background session cache update failed:', error);
-        // Keep stale cache on error
-      })
-      .finally(() => {
-        this.updateInProgress = false;
-        this.updatePromise = null;
-      });
-  }
-
-  /**
-   * Invalidate cache and trigger immediate refresh
+   * Clear the cache and perform a blocking refresh.
    */
   async invalidate(): Promise<SessionState[]> {
     this.cache = null;
     return this.refresh();
   }
 
-  /**
-   * Get cache age in milliseconds (null if no cache)
-   */
-  getCacheAge(): number | null {
-    if (!this.cache) return null;
-    return Date.now() - this.cache.timestamp;
-  }
+  // -------------------------------------------------------------------
+  // Private helpers
+  // -------------------------------------------------------------------
 
-  /**
-   * Check if cache is fresh
-   */
-  isCacheFresh(): boolean {
-    if (!this.cache) return false;
-    return (Date.now() - this.cache.timestamp) < this.ttlMs;
+  private triggerBackgroundUpdate(): void {
+    if (this.updatePromise) {
+      return;
+    }
+
+    this.updatePromise = this.discovery.discover();
+
+    this.updatePromise
+      .then((data) => {
+        this.cache = { data, timestamp: Date.now() };
+      })
+      .catch((err) => {
+        this.logger.appendLine(
+          `[session-cache] Background refresh failed: ${String(err)}`,
+        );
+      })
+      .finally(() => {
+        this.updatePromise = null;
+      });
   }
 }

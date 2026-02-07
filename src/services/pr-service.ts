@@ -1,25 +1,35 @@
 /**
- * PR Service - Orchestrates the full PR workflow
+ * PRService — orchestrates the full PR lifecycle.
+ *
+ * Coordinates TmuxService, GitService, GitHubService, ClaudeService, and
+ * ClaudeHandoverService to implement the create / setup / close workflows.
+ *
+ * Every multi-step method accepts an optional `ProgressCallback` so the
+ * VS Code `withProgress` UI can show step-by-step updates.
  */
 
 import { join } from 'path';
-import { existsSync, mkdirSync, rmSync } from 'fs';
-import type { TmuxService, TmuxSession } from './tmux.js';
-import type { GitService } from './git.js';
-import type { GitHubService, PullRequest } from './github.js';
-import type { ClaudeService } from './claude.js';
-import type { ClaudeHandoverService } from './handover.js';
+import { stat, mkdir, rm, rename } from 'fs/promises';
+import type { TmuxService } from './tmux';
+import type { GitService } from './git';
+import type { GitHubService } from './github';
+import type { ClaudeService } from './claude';
+import type { ClaudeHandoverService } from './handover';
+import type {
+  PullRequest,
+  TmuxSession,
+  ExtensionConfig,
+  ProgressCallback,
+} from '../interfaces';
+import { MfhError } from '../errors';
 
-export interface Config {
-  repo: string;          // Full git URL
-  repoName: string;      // 'owner/repo' format
-  clonesDir: string;
-  baseBranch: string;
-  sessionPrefix: string;
-  guidelines?: {
-    branchFormat?: string;
-    commitFormat?: string;
-  };
+async function pathExists(p: string): Promise<boolean> {
+  try {
+    await stat(p);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export class PRService {
@@ -29,65 +39,57 @@ export class PRService {
     private github: GitHubService,
     private claude: ClaudeService,
     private handover: ClaudeHandoverService,
-    private config: Config
+    private config: ExtensionConfig,
   ) {}
 
   /**
-   * Create a new PR from scratch
+   * Create a brand-new PR from a free-form prompt.
    *
-   * Flow:
-   * 1. Generate metadata with Claude Haiku (fast title generation)
+   * 1. Generate metadata with Claude (branch name, title, body)
    * 2. Clone repository
    * 3. Create and checkout branch
    * 4. Create empty commit
-   * 5. Push branch to remote (branch now exists with commits)
-   * 6. Create PR on GitHub (now branch has commits)
-   * 7. Create tmux session
-   * 8. Initialize Claude session with context
+   * 5. Push branch to remote
+   * 6. Create PR on GitHub
+   * 7. Rename temp clone to pr-{number}
+   * 8. Create tmux session + initialize Claude
    */
-  async createNew(params: {
-    prompt: string;
-    baseBranch?: string;
-    skipPermissions?: boolean;
-  }): Promise<{
-    pr: PullRequest;
-    session: TmuxSession;
-    clonePath: string;
-  }> {
-    const baseBranch = params.baseBranch || this.config.baseBranch;
+  async createNew(
+    params: { prompt: string; baseBranch?: string; skipPermissions?: boolean },
+    onProgress?: ProgressCallback,
+  ): Promise<{ pr: PullRequest; session: TmuxSession; clonePath: string }> {
+    const baseBranch = params.baseBranch ?? this.config.baseBranch;
 
-    console.log('[1/8] Generating metadata with Claude Haiku...');
+    onProgress?.('Asking Claude to generate branch name and title...', 1, 8);
     const metadata = await this.claude.generateMetadata(params.prompt, {
       guidelines: this.config.guidelines?.branchFormat,
       model: 'haiku',
-      skipPermissions: params.skipPermissions,
     });
 
-    console.log(`[2/8] Cloning repository...`);
-    // Use timestamp for clone path since we don't have PR number yet
+    onProgress?.(`Cloning ${this.config.repoName} at ${baseBranch}...`, 2, 8);
     const timestamp = Date.now();
     const tempClonePath = join(this.config.clonesDir, `temp-${timestamp}`);
-    if (!existsSync(this.config.clonesDir)) {
-      mkdirSync(this.config.clonesDir, { recursive: true });
-    }
-    this.git.clone(this.config.repo, tempClonePath, { depth: 1, branch: baseBranch });
+    await mkdir(this.config.clonesDir, { recursive: true });
+    await this.git.clone(this.config.repo, tempClonePath, {
+      depth: 1,
+      branch: baseBranch,
+    });
 
-    console.log('[3/8] Creating and checking out branch...');
-    this.git.createBranch(tempClonePath, metadata.branchName);
-    this.git.checkout(tempClonePath, metadata.branchName);
+    onProgress?.(`Creating branch ${metadata.branchName}...`, 3, 8);
+    await this.git.createBranch(tempClonePath, metadata.branchName);
+    await this.git.checkout(tempClonePath, metadata.branchName);
 
-    console.log('[4/8] Creating empty commit...');
-    const commitMsg = this.config.guidelines?.commitFormat || 'chore: initial commit';
-    this.git.commit(tempClonePath, commitMsg, { allowEmpty: true });
+    onProgress?.(`Committing on ${metadata.branchName}...`, 4, 8);
+    await this.git.commit(tempClonePath, 'chore: initial commit', { allowEmpty: true });
 
-    console.log('[5/8] Pushing branch to remote...');
-    this.git.push(tempClonePath, {
+    onProgress?.(`Pushing ${metadata.branchName} to origin...`, 5, 8);
+    await this.git.push(tempClonePath, {
       setUpstream: true,
       force: true,
       branch: metadata.branchName,
     });
 
-    console.log(`[6/8] Creating PR on GitHub: ${metadata.title}...`);
+    onProgress?.(`Opening draft PR: ${metadata.title}`, 6, 8);
     const pr = await this.github.createPR({
       repo: this.config.repoName,
       branch: metadata.branchName,
@@ -97,240 +99,196 @@ export class PRService {
       draft: true,
     });
 
-    console.log(`[7/8] Renaming clone to pr-${pr.number}...`);
+    onProgress?.(`Moving clone to pr-${pr.number}/...`, 7, 8);
     const clonePath = join(this.config.clonesDir, `pr-${pr.number}`);
-    if (existsSync(clonePath)) {
-      rmSync(clonePath, { recursive: true, force: true });
+    if (await pathExists(clonePath)) {
+      await rm(clonePath, { recursive: true, force: true });
     }
-    // Rename directory
-    const { renameSync } = await import('fs');
-    renameSync(tempClonePath, clonePath);
+    await rename(tempClonePath, clonePath);
 
-    console.log('[8/8] Creating or attaching to tmux session...');
-    // New naming: pr-X, but check for old naming: mfh-X for backwards compatibility
-    const newSessionId = `pr-${pr.number}`;
-    const oldSessionId = `${this.config.sessionPrefix}${pr.number}`;
+    onProgress?.(`Starting session pr-${pr.number} and initializing Claude...`, 8, 8);
+    const session = await this.resolveOrCreateSession(pr.number, clonePath);
 
-    let session = await this.tmux.get(newSessionId);
-    if (!session) {
-      // Check for old-style session name
-      session = await this.tmux.get(oldSessionId);
-    }
-    if (!session) {
-      // Create with new naming convention
-      session = await this.tmux.create({
-        id: newSessionId,
-        workingDir: clonePath,
-      });
-    }
-
-    const activeSessionId = session.id;
-    await this.handover.initialize(activeSessionId, {
+    await this.handover.initialize(session.id, {
       prNumber: pr.number,
       branch: metadata.branchName,
       baseBranch,
       userPrompt: params.prompt,
-      prUrl: pr.url,
       guidelines: this.formatGuidelines(),
       skipPermissions: params.skipPermissions,
     });
 
-    console.log(`✓ PR #${pr.number} created and session started!`);
     return { pr, session, clonePath };
   }
 
   /**
-   * Create a PR from an existing branch
+   * Create a PR from an already-existing remote branch.
    *
-   * Flow:
-   * 1. Create PR on GitHub for existing branch
+   * 1. Create PR on GitHub
    * 2. Clone repository at that branch
    * 3. Create tmux session
+   * 4. Initialize Claude
    */
-  async createFromBranch(params: {
-    branchName: string;
-    title: string;
-    baseBranch?: string;
-    skipPermissions?: boolean;
-  }): Promise<{
-    pr: PullRequest;
-    session: TmuxSession;
-    clonePath: string;
-  }> {
-    const baseBranch = params.baseBranch || this.config.baseBranch;
+  async createFromBranch(
+    params: { branch: string; title: string; baseBranch?: string; skipPermissions?: boolean },
+    onProgress?: ProgressCallback,
+  ): Promise<{ pr: PullRequest; session: TmuxSession; clonePath: string }> {
+    const baseBranch = params.baseBranch ?? this.config.baseBranch;
 
-    console.log(`[1/4] Creating PR for branch ${params.branchName}...`);
+    onProgress?.(`Opening PR: ${params.branch} → ${baseBranch}...`, 1, 4);
     const pr = await this.github.createPR({
       repo: this.config.repoName,
-      branch: params.branchName,
+      branch: params.branch,
       baseBranch,
       title: params.title,
-      body: `PR created from existing branch: ${params.branchName}`,
+      body: `PR created from existing branch: ${params.branch}`,
       draft: false,
     });
 
     const clonePath = join(this.config.clonesDir, `pr-${pr.number}`);
-    const cloneExists = existsSync(clonePath);
+    const cloneExists = await pathExists(clonePath);
 
     if (!cloneExists) {
-      console.log(`[2/4] Cloning repository (PR #${pr.number})...`);
-      if (!existsSync(this.config.clonesDir)) {
-        mkdirSync(this.config.clonesDir, { recursive: true });
-      }
-
-      this.git.clone(this.config.repo, clonePath, {
+      onProgress?.(`Cloning ${this.config.repoName} at ${params.branch} (PR #${pr.number})...`, 2, 4);
+      await mkdir(this.config.clonesDir, { recursive: true });
+      await this.git.clone(this.config.repo, clonePath, {
         depth: 1,
-        branch: params.branchName,
+        branch: params.branch,
       });
     } else {
-      console.log('[2/4] Using existing clone...');
+      onProgress?.(`Using existing clone for PR #${pr.number}...`, 2, 4);
     }
 
-    console.log('[3/4] Creating or attaching to tmux session...');
-    // New naming: pr-X, but check for old naming: mfh-X for backwards compatibility
-    const newSessionId = `pr-${pr.number}`;
-    const oldSessionId = `${this.config.sessionPrefix}${pr.number}`;
+    onProgress?.(`Starting session pr-${pr.number}...`, 3, 4);
+    const session = await this.resolveOrCreateSession(pr.number, clonePath);
 
-    let session = await this.tmux.get(newSessionId);
-    if (!session) {
-      // Check for old-style session name
-      session = await this.tmux.get(oldSessionId);
-    }
-    if (!session) {
-      // Create with new naming convention
-      session = await this.tmux.create({
-        id: newSessionId,
-        workingDir: clonePath,
-      });
-    }
-
-    console.log('[4/4] Initializing Claude session...');
+    onProgress?.(`Initializing Claude in pr-${pr.number}...`, 4, 4);
     const userPrompt = cloneExists
-      ? `Resuming work on PR #${pr.number} from branch ${params.branchName}\n\nThe repository is already cloned and ready. Waiting for your instructions.`
-      : `Working on PR from existing branch: ${params.branchName}`;
+      ? `Resuming work on PR #${pr.number} from branch ${params.branch}\n\nThe repository is already cloned and ready. Waiting for your instructions.`
+      : `Working on PR from existing branch: ${params.branch}`;
 
-    const activeSessionId = session.id;
-    await this.handover.initialize(activeSessionId, {
+    await this.handover.initialize(session.id, {
       prNumber: pr.number,
-      branch: params.branchName,
+      branch: params.branch,
       baseBranch,
       userPrompt,
-      prUrl: pr.url,
       guidelines: this.formatGuidelines(),
       skipPermissions: params.skipPermissions,
     });
 
-    console.log(`✓ PR #${pr.number} created from branch and session started!`);
     return { pr, session, clonePath };
   }
 
   /**
-   * Setup an existing PR
+   * Set up a local clone and tmux session for an existing GitHub PR.
    *
-   * Flow:
-   * 1. Get PR details from GitHub
-   * 2. Clone the PR's branch
+   * 1. Fetch PR details
+   * 2. Clone (or reuse existing clone)
    * 3. Create tmux session
-   * 4. Initialize Claude with PR context
+   * 4. Initialize Claude
    */
-  async setupExisting(prNumber: number, skipPermissions?: boolean): Promise<{
-    pr: PullRequest;
-    session: TmuxSession;
-    clonePath: string;
-  }> {
-    console.log(`[1/4] Getting PR #${prNumber} details...`);
+  async setupExisting(
+    prNumber: number,
+    onProgress?: ProgressCallback,
+  ): Promise<{ pr: PullRequest; session: TmuxSession; clonePath: string }> {
+    onProgress?.(`Fetching PR #${prNumber} from ${this.config.repoName}...`, 1, 4);
     const pr = await this.github.getPR(this.config.repoName, prNumber);
     if (!pr) {
-      throw new Error(`PR #${prNumber} not found`);
+      throw new MfhError(`PR #${prNumber} not found`);
     }
 
     const clonePath = join(this.config.clonesDir, `pr-${pr.number}`);
-    const cloneExists = existsSync(clonePath);
+    const cloneExists = await pathExists(clonePath);
 
     if (!cloneExists) {
-      console.log('[2/4] Cloning repository...');
-      if (!existsSync(this.config.clonesDir)) {
-        mkdirSync(this.config.clonesDir, { recursive: true });
-      }
-
-      this.git.clone(this.config.repo, clonePath, {
+      onProgress?.(`Cloning ${this.config.repoName} at ${pr.branch}...`, 2, 4);
+      await mkdir(this.config.clonesDir, { recursive: true });
+      await this.git.clone(this.config.repo, clonePath, {
         depth: 1,
         branch: pr.branch,
       });
     } else {
-      console.log('[2/4] Using existing clone...');
+      onProgress?.(`Clone exists for PR #${pr.number}, reusing...`, 2, 4);
     }
 
-    console.log('[3/4] Creating or attaching to tmux session...');
-    // New naming: pr-X, but check for old naming: mfh-X for backwards compatibility
-    const newSessionId = `pr-${pr.number}`;
-    const oldSessionId = `${this.config.sessionPrefix}${pr.number}`;
+    onProgress?.(`Starting session pr-${pr.number}...`, 3, 4);
+    const session = await this.resolveOrCreateSession(pr.number, clonePath);
 
-    let session = await this.tmux.get(newSessionId);
-    if (!session) {
-      // Check for old-style session name
-      session = await this.tmux.get(oldSessionId);
-    }
-    if (!session) {
-      // Create with new naming convention
-      session = await this.tmux.create({
-        id: newSessionId,
-        workingDir: clonePath,
-      });
-    }
-
-    console.log('[4/4] Initializing Claude session...');
+    onProgress?.(`Initializing Claude in pr-${pr.number}...`, 4, 4);
     const userPrompt = cloneExists
       ? `Resuming work on PR #${pr.number}: ${pr.title}\n\nThe repository is already cloned and ready. Waiting for your instructions.`
       : `Continue working on: ${pr.title}`;
 
-    const activeSessionId = session.id;
-    await this.handover.initialize(activeSessionId, {
+    await this.handover.initialize(session.id, {
       prNumber: pr.number,
       branch: pr.branch,
       baseBranch: pr.baseBranch,
       userPrompt,
-      prUrl: pr.url,
       guidelines: this.formatGuidelines(),
-      skipPermissions: skipPermissions,
     });
 
-    console.log(`✓ PR #${pr.number} set up and session started!`);
     return { pr, session, clonePath };
   }
 
   /**
-   * Close a PR and cleanup
-   *
-   * Flow:
-   * 1. Close PR on GitHub (mocked if mockWrites=true)
-   * 2. Kill tmux session if exists
-   * 3. Remove clone directory
+   * Close a PR, kill its tmux session, and remove the local clone.
    */
-  async close(prNumber: number): Promise<void> {
-    console.log(`[1/3] Closing PR #${prNumber} on GitHub...`);
+  async close(
+    prNumber: number,
+    onProgress?: ProgressCallback,
+  ): Promise<void> {
+    onProgress?.(`Closing PR #${prNumber} on ${this.config.repoName}...`, 1, 3);
     await this.github.closePR(this.config.repoName, prNumber);
 
-    const sessionId = `${this.config.sessionPrefix}${prNumber}`;
+    onProgress?.(`Stopping session for PR #${prNumber}...`, 2, 3);
+    const newId = `pr-${prNumber}`;
+    const oldId = `${this.config.sessionPrefix}${prNumber}`;
 
-    console.log('[2/3] Killing tmux session...');
-    if (await this.tmux.exists(sessionId)) {
-      await this.tmux.kill(sessionId);
+    if (await this.tmux.exists(newId)) {
+      await this.tmux.kill(newId);
+    } else if (await this.tmux.exists(oldId)) {
+      await this.tmux.kill(oldId);
     }
 
-    console.log('[3/3] Removing clone directory...');
+    onProgress?.(`Removing clone pr-${prNumber}/...`, 3, 3);
     const clonePath = join(this.config.clonesDir, `pr-${prNumber}`);
-    if (existsSync(clonePath)) {
-      rmSync(clonePath, { recursive: true, force: true });
+    if (await pathExists(clonePath)) {
+      await rm(clonePath, { recursive: true, force: true });
+    }
+  }
+
+  // -------------------------------------------------------------------
+  // Private helpers
+  // -------------------------------------------------------------------
+
+  /**
+   * Look for an existing tmux session under either naming convention.
+   * Creates a new session with the modern `pr-X` name if none exists.
+   */
+  private async resolveOrCreateSession(
+    prNumber: number,
+    clonePath: string,
+  ): Promise<TmuxSession> {
+    const newId = `pr-${prNumber}`;
+    const oldId = `${this.config.sessionPrefix}${prNumber}`;
+
+    let session = await this.tmux.get(newId);
+    if (!session) {
+      session = await this.tmux.get(oldId);
+    }
+    if (!session) {
+      session = await this.tmux.create({ id: newId, workingDir: clonePath });
     }
 
-    console.log(`✓ PR #${prNumber} closed and cleaned up!`);
+    return session;
   }
 
   private formatGuidelines(): string {
-    if (!this.config.guidelines) return '';
+    if (!this.config.guidelines) {
+      return '';
+    }
 
-    const parts = [];
+    const parts: string[] = [];
     if (this.config.guidelines.branchFormat) {
       parts.push(`Branch format: ${this.config.guidelines.branchFormat}`);
     }
