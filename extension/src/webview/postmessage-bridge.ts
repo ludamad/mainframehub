@@ -98,5 +98,8 @@ export function createPostMessageBridge(): MfhBridge {
     openInBrowser: (url) => {
       vscode.postMessage({ type: 'request', id: crypto.randomUUID(), method: 'openInBrowser', params: [url] });
     },
+    openFolder: (folderPath) => {
+      vscode.postMessage({ type: 'request', id: crypto.randomUUID(), method: 'openFolder', params: [folderPath] });
+    },
   };
 }

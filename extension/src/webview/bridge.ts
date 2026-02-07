@@ -63,6 +63,7 @@ export interface MfhBridge {
   deleteClone(clonePath: string): Promise<void>;
   openTerminal(sessionId: string): void;
   openInBrowser(url: string): void;
+  openFolder(folderPath: string): void;
   refreshAll(): Promise<void>;
 }
 

@@ -162,6 +162,10 @@ export class WebviewPanelManager implements vscode.Disposable {
       case 'openInBrowser':
         await vscode.env.openExternal(vscode.Uri.parse(params[0] as string));
         return;
+      case 'openFolder':
+        await vscode.commands.executeCommand('vscode.openFolder',
+          vscode.Uri.file(params[0] as string), { forceNewWindow: true });
+        return;
       case 'refreshAll':
         this.container.invalidateCaches();
         return;
