@@ -12,8 +12,7 @@
 import * as http from 'http';
 import * as fs from 'fs';
 import * as path from 'path';
-import type * as vscode from 'vscode';
-import type { ServiceContainer } from '../container';
+import type { ServerContainer, ServerLogger } from './types';
 
 const CONTENT_TYPES: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -28,9 +27,9 @@ export interface HttpServerOptions {
 }
 
 export function createHttpServer(
-  container: ServiceContainer,
+  container: ServerContainer,
   options: HttpServerOptions,
-  outputChannel: vscode.OutputChannel,
+  logger: ServerLogger,
 ): { server: http.Server; port: number; dispose: () => void } {
   const distWebview = path.join(options.extensionPath, 'dist', 'webview');
 
@@ -57,7 +56,7 @@ export function createHttpServer(
 
       // API routes
       if (url.pathname.startsWith('/api/')) {
-        await handleApi(url.pathname, req, res, container, outputChannel);
+        await handleApi(url.pathname, req, res, container, logger);
         return;
       }
 
@@ -65,22 +64,22 @@ export function createHttpServer(
       res.end('Not Found');
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
-      outputChannel.appendLine(`[http-server] Error: ${message}`);
+      logger.appendLine(`[http-server] Error: ${message}`);
       res.writeHead(500);
       res.end(JSON.stringify({ error: message }));
     }
   });
 
   server.listen(options.port, '127.0.0.1', () => {
-    outputChannel.appendLine(`[http-server] Dashboard available at http://127.0.0.1:${options.port}`);
+    logger.appendLine(`[http-server] Dashboard available at http://127.0.0.1:${options.port}`);
   });
 
   server.on('error', (err: NodeJS.ErrnoException) => {
     if (err.code === 'EADDRINUSE') {
-      outputChannel.appendLine(`[http-server] Port ${options.port} in use, trying ${options.port + 1}`);
+      logger.appendLine(`[http-server] Port ${options.port} in use, trying ${options.port + 1}`);
       server.listen(options.port + 1, '127.0.0.1');
     } else {
-      outputChannel.appendLine(`[http-server] Server error: ${err.message}`);
+      logger.appendLine(`[http-server] Server error: ${err.message}`);
     }
   });
 
@@ -152,8 +151,8 @@ async function handleApi(
   pathname: string,
   req: http.IncomingMessage,
   res: http.ServerResponse,
-  container: ServiceContainer,
-  outputChannel: vscode.OutputChannel,
+  container: ServerContainer,
+  logger: ServerLogger,
 ): Promise<void> {
   const sendJson = (data: unknown, status = 200) => {
     res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
@@ -251,7 +250,7 @@ async function handleApi(
     }
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
-    outputChannel.appendLine(`[http-server] API error ${pathname}: ${message}`);
+    logger.appendLine(`[http-server] API error ${pathname}: ${message}`);
     sendJson({ error: message }, 500);
   }
 }

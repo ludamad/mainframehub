@@ -447,8 +447,10 @@
     "compile:webview": "esbuild src/webview/app.ts --bundle --outfile=dist/webview/app.js --format=iife --platform=browser --sourcemap && cp src/webview/styles.css dist/webview/styles.css",
     "watch": "npm run compile:ext -- --watch & npm run compile:webview -- --watch",
     "package": "vsce package",
+    "compile:server": "esbuild src/server/standalone.ts --bundle --outfile=dist/server.js --format=cjs --platform=node --sourcemap",
     "lint": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "web": "npm run compile:webview && npm run compile:server && node dist/server.js"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
