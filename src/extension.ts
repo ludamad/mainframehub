@@ -30,6 +30,7 @@ import { TerminalManager } from './views/terminal-manager';
 import { StatusBarManager } from './views/status-bar';
 import { MfhDecorationProvider } from './views/decoration-provider';
 import { WebviewPanelManager } from './views/webview-panel';
+import { createHttpServer } from './server/http-server';
 import { registerCommands } from './commands/index';
 
 export async function activate(
@@ -177,6 +178,24 @@ export async function activate(
 
   context.subscriptions.push(
     vscode.commands.registerCommand('mfh.openDashboard', () => webviewPanel.show()),
+  );
+
+  // -----------------------------------------------------------------------
+  // 9c. Embedded HTTP server for browser access
+  // -----------------------------------------------------------------------
+  const httpServer = createHttpServer(
+    container,
+    { port: 3000, extensionPath: context.extensionPath },
+    outputChannel,
+  );
+  context.subscriptions.push(new vscode.Disposable(() => httpServer.dispose()));
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('mfh.openInBrowser', () => {
+      vscode.env.openExternal(
+        vscode.Uri.parse(`http://127.0.0.1:${httpServer.port}`),
+      );
+    }),
   );
 
   // -----------------------------------------------------------------------

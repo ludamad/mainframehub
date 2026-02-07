@@ -26,6 +26,11 @@
         "icon": "$(dashboard)"
       },
       {
+        "command": "mfh.openInBrowser",
+        "title": "MFH: Open Dashboard in Browser",
+        "icon": "$(globe)"
+      },
+      {
         "command": "mfh.createPR",
         "title": "MFH: Create New PR",
         "icon": "$(add)"
@@ -313,6 +318,10 @@
         },
         {
           "command": "mfh.openDashboard",
+          "when": "mfh.isConfigured"
+        },
+        {
+          "command": "mfh.openInBrowser",
           "when": "mfh.isConfigured"
         },
         {

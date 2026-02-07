@@ -10,6 +10,7 @@
 import type { MfhBridge, ProgressUpdate, CreatePRResult } from './bridge';
 import type { PRWithStatus, GroupedPRs, ExtensionConfig } from '../interfaces';
 import { createPostMessageBridge } from './postmessage-bridge';
+import { createHttpBridge } from './http-bridge';
 
 // ============================================================================
 // Context detection + bridge creation
@@ -17,11 +18,10 @@ import { createPostMessageBridge } from './postmessage-bridge';
 
 declare function acquireVsCodeApi(): { postMessage(msg: unknown): void };
 
+const isVSCode = typeof acquireVsCodeApi === 'function';
+
 function createBridge(): MfhBridge {
-  if (typeof acquireVsCodeApi === 'function') {
-    return createPostMessageBridge();
-  }
-  throw new Error('Browser bridge not implemented yet');
+  return isVSCode ? createPostMessageBridge() : createHttpBridge();
 }
 
 // ============================================================================
@@ -355,7 +355,11 @@ function initActionButtons(): void {
 
     switch (action) {
       case 'openTerminal':
-        bridge.openTerminal(btn.dataset.session!);
+        if (isVSCode) {
+          bridge.openTerminal(btn.dataset.session!);
+        } else {
+          showToast('Terminal requires VS Code', 'info');
+        }
         break;
 
       case 'openInBrowser':
@@ -363,7 +367,11 @@ function initActionButtons(): void {
         break;
 
       case 'openFolder':
-        bridge.openFolder(btn.dataset.path!);
+        if (isVSCode) {
+          bridge.openFolder(btn.dataset.path!);
+        } else {
+          showToast('Open Folder requires VS Code', 'info');
+        }
         break;
 
       case 'switchTab':
@@ -434,9 +442,12 @@ async function handleSetupPR(btn: HTMLElement): Promise<void> {
 }
 
 async function handleInitClaude(btn: HTMLElement): Promise<void> {
-  const sessionId = btn.dataset.session!;
-  bridge.openTerminal(sessionId);
-  showToast('Terminal opened — type your prompt to start Claude', 'info');
+  if (isVSCode) {
+    bridge.openTerminal(btn.dataset.session!);
+    showToast('Terminal opened — type your prompt to start Claude', 'info');
+  } else {
+    showToast('Terminal requires VS Code', 'info');
+  }
 }
 
 async function handleKillSession(btn: HTMLElement): Promise<void> {
