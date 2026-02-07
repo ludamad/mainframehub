@@ -21,6 +21,11 @@
   "contributes": {
     "commands": [
       {
+        "command": "mfh.openDashboard",
+        "title": "MFH: Open Dashboard",
+        "icon": "$(dashboard)"
+      },
+      {
         "command": "mfh.createPR",
         "title": "MFH: Create New PR",
         "icon": "$(add)"
@@ -307,6 +312,10 @@
           "when": "mfh.isConfigured"
         },
         {
+          "command": "mfh.openDashboard",
+          "when": "mfh.isConfigured"
+        },
+        {
           "command": "mfh.setupWizard"
         },
         {
@@ -424,8 +433,10 @@
     }
   },
   "scripts": {
-    "compile": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --sourcemap",
-    "watch": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --sourcemap --watch",
+    "compile": "npm run compile:ext && npm run compile:webview",
+    "compile:ext": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --sourcemap",
+    "compile:webview": "esbuild src/webview/app.ts --bundle --outfile=dist/webview/app.js --format=iife --platform=browser --sourcemap && cp src/webview/styles.css dist/webview/styles.css",
+    "watch": "npm run compile:ext -- --watch & npm run compile:webview -- --watch",
     "package": "vsce package",
     "lint": "tsc --noEmit",
     "test": "vitest run"

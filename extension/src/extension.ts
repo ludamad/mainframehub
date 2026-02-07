@@ -29,6 +29,7 @@ import { MfhTreeDataProvider } from './views/tree-provider';
 import { TerminalManager } from './views/terminal-manager';
 import { StatusBarManager } from './views/status-bar';
 import { MfhDecorationProvider } from './views/decoration-provider';
+import { WebviewPanelManager } from './views/webview-panel';
 import { registerCommands } from './commands/index';
 
 export async function activate(
@@ -162,6 +163,21 @@ export async function activate(
   // -----------------------------------------------------------------------
   const terminalManager = new TerminalManager(tmuxPath);
   context.subscriptions.push(terminalManager);
+
+  // -----------------------------------------------------------------------
+  // 9b. Webview dashboard
+  // -----------------------------------------------------------------------
+  const webviewPanel = new WebviewPanelManager(
+    context.extensionUri,
+    container,
+    terminalManager,
+    outputChannel,
+  );
+  context.subscriptions.push(webviewPanel);
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('mfh.openDashboard', () => webviewPanel.show()),
+  );
 
   // -----------------------------------------------------------------------
   // 10. Register all commands

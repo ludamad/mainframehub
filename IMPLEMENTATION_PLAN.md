@@ -513,6 +513,60 @@ Migrate MainframeHub from a standalone web app (Express + xterm.js) to a **VS Co
 6. **No PATH issues** — always Linux via SSH Remote, tools always in PATH
 7. **Resume vs Init are separate** — opening a terminal doesn't force Claude handover
 
+---
+
+## Stage 6: Unified Webview Dashboard
+
+**Goal**: WebviewPanel in VS Code with a postMessage bridge to the ServiceContainer, providing a discoverable landing page with tabs and action buttons.
+
+**Success Criteria**:
+- `mfh.openDashboard` command opens a WebviewPanel
+- Status bar click opens the dashboard
+- My PRs tab shows grouped PR cards with action buttons
+- New PR tab with form and progress reporting
+- "Open Terminal" uses native VS Code terminal (not xterm.js)
+- Both extension host and webview bundles compile
+- All 94 existing tests pass
+
+**Files Created**:
+- `extension/src/webview/bridge.ts` — MfhBridge interface, postMessage protocol types
+- `extension/src/webview/postmessage-bridge.ts` — VS Code webview adapter with correlation IDs
+- `extension/src/webview/app.ts` — Webview entry point (2 tabs: My PRs, New PR)
+- `extension/src/webview/styles.css` — Retro terminal theme (CSP-compliant)
+- `extension/src/views/webview-panel.ts` — WebviewPanelManager + BridgeHandler
+
+**Status**: In Progress (Stage 1 complete, Stages 2-4 pending)
+
+### Stage 6.1: Webview Infrastructure + Bridge
+- WebviewPanel with retainContextWhenHidden
+- CSP-compliant HTML with nonce-based scripts
+- postMessage bridge with correlation IDs (30s query timeout, 5min progress timeout)
+- BridgeHandler dispatches to ServiceContainer
+- Dual esbuild config (CJS/node + IIFE/browser)
+- Status bar click opens dashboard
+- **Status**: Complete
+
+### Stage 6.2: Full Webview UI
+- All 4 tabs (My PRs, Clones, Branches, New PR)
+- Toast notifications, loading/empty states
+- Action buttons wired to bridge calls
+- Progress display during mutations
+- **Status**: Not Started
+
+### Stage 6.3: Browser Host (HTTP Bridge)
+- HTTP/fetch bridge adapter for browser context
+- Express server serves webview bundle
+- Token auth modal for browser
+- **Status**: Not Started
+
+### Stage 6.4: Consolidation + Cleanup
+- Delete duplicate src/services/
+- Simplify tree view
+- Reduce commands/index.ts
+- **Status**: Not Started
+
+---
+
 ### Exec Migration Guide
 Every `execSync` call becomes an async `spawn` with argument arrays:
 

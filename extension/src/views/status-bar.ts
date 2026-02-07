@@ -6,7 +6,7 @@
  *   - Not configured state:  "$(circle-slash) MFH: not configured"
  *   - Refreshing state:      "$(sync~spin) MFH: refreshing..."
  *
- * Clicking the status bar item triggers the mfh.openPR quick pick command.
+ * Clicking the status bar item opens the dashboard webview.
  */
 
 import * as vscode from 'vscode';
@@ -22,7 +22,7 @@ export class StatusBarManager implements vscode.Disposable {
       vscode.StatusBarAlignment.Left,
       50,
     );
-    this.item.command = 'mfh.openPR';
+    this.item.command = 'mfh.openDashboard';
     this.render();
     this.item.show();
   }
@@ -72,7 +72,7 @@ export class StatusBarManager implements vscode.Disposable {
     if (this.isRefreshing) {
       this.item.text = '$(sync~spin) MFH: refreshing\u2026';
       this.item.tooltip = 'MainframeHub is refreshing session data';
-      this.item.command = 'mfh.openPR';
+      this.item.command = 'mfh.openDashboard';
       return;
     }
 
@@ -85,14 +85,14 @@ export class StatusBarManager implements vscode.Disposable {
 
     if (this.activeCount === 0) {
       this.item.text = '$(terminal) MFH: no active PRs';
-      this.item.tooltip = 'MainframeHub \u2014 no active sessions. Click to open PR list.';
+      this.item.tooltip = 'MainframeHub \u2014 no active sessions. Click to open dashboard.';
     } else if (this.activeCount === 1) {
       this.item.text = '$(terminal) 1 PR active';
-      this.item.tooltip = 'MainframeHub \u2014 1 active session. Click to open PR list.';
+      this.item.tooltip = 'MainframeHub \u2014 1 active session. Click to open dashboard.';
     } else {
       this.item.text = `$(terminal) ${this.activeCount} PRs active`;
-      this.item.tooltip = `MainframeHub \u2014 ${this.activeCount} active sessions. Click to open PR list.`;
+      this.item.tooltip = `MainframeHub \u2014 ${this.activeCount} active sessions. Click to open dashboard.`;
     }
-    this.item.command = 'mfh.openPR';
+    this.item.command = 'mfh.openDashboard';
   }
 }
