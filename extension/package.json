@@ -406,7 +406,7 @@
         "mfh.guidelines.commitFormat": {
           "type": "string",
           "default": "type: description",
-          "description": "Commit message convention passed to Claude (e.g. type: description)."
+          "markdownDescription": "Commit message convention passed to Claude. Uses [Conventional Commits](https://www.conventionalcommits.org/) format: `type: short imperative description`.\n\nValid types: `feat` (new feature), `fix` (bug fix), `refactor` (restructure without behavior change), `chore` (tooling/config), `docs` (documentation), `test` (adding/fixing tests), `style` (formatting), `perf` (performance), `ci` (CI/CD).\n\nThe description should be lowercase, imperative mood, no period. Examples:\n- `feat: add OAuth login flow`\n- `fix: prevent crash on empty input`\n- `refactor: extract validation into shared util`"
         },
         "mfh.autoRefreshInterval": {
           "type": "number",
