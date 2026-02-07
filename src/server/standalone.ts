@@ -1,9 +1,9 @@
 /**
  * Standalone server entry point for browser-only access.
  *
- * Runs without VS Code — reads config from .vscode/settings.json,
- * gets GitHub token from `gh auth token`, creates all services,
- * and starts the HTTP server.
+ * Runs without VS Code — auto-detects config from git remote and
+ * .vscode/settings.json, gets GitHub token from `gh auth token`,
+ * creates all services, and starts the HTTP server.
  *
  * Usage: node dist/server.js
  */
@@ -11,7 +11,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { execSync } from 'child_process';
-import { rm } from 'fs/promises';
+import { rm, mkdir } from 'fs/promises';
 
 import { type ExtensionConfig, parseRepo } from '../interfaces';
 import { TmuxService } from '../services/tmux';
@@ -39,32 +39,45 @@ const logger: ServerLogger = {
 };
 
 // ---------------------------------------------------------------------------
-// Config — read from .vscode/settings.json
+// Config — auto-detect from git, override from .vscode/settings.json
 // ---------------------------------------------------------------------------
 
-function readConfig(): ExtensionConfig {
+function readSettingsFile(): Record<string, unknown> {
   const settingsPath = path.join(process.cwd(), '.vscode', 'settings.json');
 
-  let mfh: Record<string, unknown> = {};
-
-  if (fs.existsSync(settingsPath)) {
-    const raw = fs.readFileSync(settingsPath, 'utf-8');
-    // Strip JSON comments (// and /* */) for VS Code settings compatibility
-    const stripped = raw.replace(/\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
-    const settings = JSON.parse(stripped);
-
-    // Extract mfh.* keys
-    for (const [key, value] of Object.entries(settings)) {
-      if (key.startsWith('mfh.')) {
-        const shortKey = key.slice(4); // remove "mfh."
-        mfh[shortKey] = value;
-      }
-    }
+  if (!fs.existsSync(settingsPath)) {
+    return {};
   }
 
-  const repo = (mfh.repo as string) ?? '';
-  const explicitRepoName = (mfh.repoName as string) ?? '';
-  let repoName = explicitRepoName;
+  const raw = fs.readFileSync(settingsPath, 'utf-8');
+  // Strip JSON comments (// and /* */) for VS Code settings compatibility
+  const stripped = raw.replace(/\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
+  const settings = JSON.parse(stripped);
+
+  const mfh: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(settings)) {
+    if (key.startsWith('mfh.')) {
+      mfh[key.slice(4)] = value;
+    }
+  }
+  return mfh;
+}
+
+function detectRepoFromGit(): string {
+  try {
+    return execSync('git remote get-url origin', { encoding: 'utf-8' }).trim();
+  } catch {
+    return '';
+  }
+}
+
+function readConfig(): ExtensionConfig {
+  const mfh = readSettingsFile();
+
+  // Auto-detect repo from git remote, settings override
+  const repo = (mfh.repo as string) || detectRepoFromGit();
+
+  let repoName = (mfh.repoName as string) || '';
   if (!repoName && repo) {
     try {
       repoName = parseRepo(repo);
@@ -73,11 +86,30 @@ function readConfig(): ExtensionConfig {
     }
   }
 
+  // Auto-derive clonesDir like the Setup Wizard does
+  const home = process.env.HOME ?? '/home/user';
+  const repoShort = repoName.split('/')[1] ?? 'repo';
+  const defaultClonesDir = path.join(home, 'mfh-clones', repoShort);
+  const clonesDir = (mfh.clonesDir as string) || defaultClonesDir;
+
+  // referenceGitPath defaults to cwd if it's the same repo
+  let referenceGitPath = (mfh.referenceGitPath as string) || '';
+  if (!referenceGitPath && repo) {
+    const gitRemote = detectRepoFromGit();
+    if (gitRemote) {
+      try {
+        if (parseRepo(gitRemote) === repoName) {
+          referenceGitPath = process.cwd();
+        }
+      } catch { /* not the same repo */ }
+    }
+  }
+
   return {
     repo,
     repoName,
-    referenceGitPath: (mfh.referenceGitPath as string) ?? '',
-    clonesDir: (mfh.clonesDir as string) ?? '',
+    referenceGitPath,
+    clonesDir,
     baseBranch: (mfh.baseBranch as string) ?? 'main',
     sessionPrefix: (mfh.sessionPrefix as string) ?? 'pr-',
     baseBranchPresets: (mfh.baseBranchPresets as string[]) ?? ['main'],
@@ -112,11 +144,14 @@ function getGitHubToken(): string {
 async function main(): Promise<void> {
   const config = readConfig();
 
-  if (!config.repo || !config.clonesDir) {
-    console.error('Missing config. Ensure .vscode/settings.json has mfh.repo and mfh.clonesDir set.');
-    console.error('Run the MFH Setup Wizard in VS Code first, or create .vscode/settings.json manually.');
+  if (!config.repo) {
+    console.error('Could not detect repository. Run from a git repo with a GitHub remote,');
+    console.error('or set mfh.repo in .vscode/settings.json.');
     process.exit(1);
   }
+
+  // Ensure clones dir exists (auto-derived or from settings)
+  await mkdir(config.clonesDir, { recursive: true }).catch(() => {});
 
   logger.appendLine(`[standalone] repo=${config.repoName}, clonesDir=${config.clonesDir}`);
 
