@@ -517,25 +517,9 @@ Migrate MainframeHub from a standalone web app (Express + xterm.js) to a **VS Co
 
 ## Stage 6: Unified Webview Dashboard
 
-**Goal**: WebviewPanel in VS Code with a postMessage bridge to the ServiceContainer, providing a discoverable landing page with tabs and action buttons.
+**Goal**: Single webview codebase serving both VS Code (postMessage) and browser (HTTP). Consolidated repo with no duplicate code.
 
-**Success Criteria**:
-- `mfh.openDashboard` command opens a WebviewPanel
-- Status bar click opens the dashboard
-- My PRs tab shows grouped PR cards with action buttons
-- New PR tab with form and progress reporting
-- "Open Terminal" uses native VS Code terminal (not xterm.js)
-- Both extension host and webview bundles compile
-- All 94 existing tests pass
-
-**Files Created**:
-- `extension/src/webview/bridge.ts` — MfhBridge interface, postMessage protocol types
-- `extension/src/webview/postmessage-bridge.ts` — VS Code webview adapter with correlation IDs
-- `extension/src/webview/app.ts` — Webview entry point (2 tabs: My PRs, New PR)
-- `extension/src/webview/styles.css` — Retro terminal theme (CSP-compliant)
-- `extension/src/views/webview-panel.ts` — WebviewPanelManager + BridgeHandler
-
-**Status**: In Progress (Stage 1 complete, Stages 2-4 pending)
+**Status**: Complete
 
 ### Stage 6.1: Webview Infrastructure + Bridge
 - WebviewPanel with retainContextWhenHidden
@@ -547,23 +531,25 @@ Migrate MainframeHub from a standalone web app (Express + xterm.js) to a **VS Co
 - **Status**: Complete
 
 ### Stage 6.2: Full Webview UI
-- All 4 tabs (My PRs, Clones, Branches, New PR)
-- Toast notifications, loading/empty states
-- Action buttons wired to bridge calls
-- Progress display during mutations
-- **Status**: Not Started
+- 2 tabs: My PRs (grouped cards with contextual actions) + New PR (form with progress)
+- Toast notifications, inline confirmation for destructive actions
+- Refresh with spinning animation, status badges (DRAFT, CLOSED, MERGED)
+- **Status**: Complete
 
-### Stage 6.3: Browser Host (HTTP Bridge)
-- HTTP/fetch bridge adapter for browser context
-- Express server serves webview bundle
-- Token auth modal for browser
-- **Status**: Not Started
+### Stage 6.3: Consolidation + Flatten
+- Deleted old `src/` (execSync services), `web/` (Express + static), `tests/` (Jest)
+- Flattened `extension/` to repo root — zero path changes needed
+- Cleaned up root configs (jest, playwright, old tsconfig, old package.json)
+- **Status**: Complete
 
-### Stage 6.4: Consolidation + Cleanup
-- Delete duplicate src/services/
-- Simplify tree view
-- Reduce commands/index.ts
-- **Status**: Not Started
+### Stage 6.4: Embedded HTTP Server + Browser Access
+- Lightweight HTTP server using Node built-in `http` module (no Express)
+- Same ServiceContainer serves both webview panel and browser clients
+- HTTP bridge (`fetch`-based MfhBridge) for browser context
+- Context detection: `acquireVsCodeApi` → postMessage, else → HTTP
+- `mfh.openInBrowser` command opens browser to `http://127.0.0.1:3000`
+- VS Code-only features (openTerminal, openFolder) show toast in browser
+- **Status**: Complete
 
 ---
 
