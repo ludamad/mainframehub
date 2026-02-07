@@ -12,9 +12,11 @@ import { ClaudeService } from '../../src/services/claude.js';
 import { DiscoveryService } from '../../src/services/discovery.js';
 import { SessionCacheService } from '../../src/services/session-cache.js';
 import { PRCacheService } from '../../src/services/pr-cache.js';
+import { BranchCacheService } from '../../src/services/branch-cache.js';
 import { PRService } from '../../src/services/pr-service.js';
 import { ClaudeHandoverService } from '../../src/services/handover.js';
 import { readFileSync } from 'fs';
+import { execSync } from 'child_process';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -42,6 +44,75 @@ export function createWebServer(options: ServerOptions = {}) {
   const discovery = new DiscoveryService(tmux, git, github, config.sessionPrefix);
   const sessionCache = new SessionCacheService(discovery, 30000); // 30s TTL
   const prCache = new PRCacheService(github, config.repoName); // 60min TTL
+
+  // Branch cache with fetcher function
+  const branchCache = new BranchCacheService(async (username: string) => {
+    // Get all open PRs to exclude branches that already have PRs
+    const openPRs = await github.listPRs(config.repoName, { state: 'open' });
+    const prBranches = new Set(openPRs.map((pr: any) => pr.branch));
+
+    // Fetch ALL branches from remote in reference git folder
+    try {
+      execSync(`git -C "${config.repo}" fetch --all --prune`, {
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'ignore']
+      });
+    } catch (fetchError: any) {
+      throw new Error(`Failed to fetch branches from ${config.repo}: ${fetchError.message}`);
+    }
+
+    // Get all remote branches from the reference git folder
+    const branchOutput = execSync(
+      `git -C "${config.repo}" branch -r --format='%(refname:short)'`,
+      { encoding: 'utf-8' }
+    );
+    const allBranches = branchOutput
+      .trim()
+      .split('\n')
+      .filter(line => line.startsWith('origin/'))
+      .map(line => line.replace('origin/', ''))
+      .filter(line => line && line !== 'HEAD');
+
+    // Get current user's email from token
+    const userEmail = execSync('gh api user --jq .email', { encoding: 'utf-8' }).trim();
+
+    // For each branch, check if the LAST commit is by the current user
+    const userBranches = [];
+    for (const branchName of allBranches) {
+      // Skip branches that already have PRs
+      if (prBranches.has(branchName)) {
+        continue;
+      }
+
+      try {
+        // Get the author email of the last commit on this branch
+        const lastCommitAuthor = execSync(
+          `git -C "${config.repo}" log -1 --format=%ae origin/${branchName} 2>/dev/null`,
+          { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'ignore'] }
+        ).trim();
+
+        // Check if the last commit is by the current user
+        if (lastCommitAuthor === userEmail) {
+          // Check if protected
+          const protectedStatus = execSync(
+            `gh api "repos/${config.repoName}/branches/${branchName}" --jq .protected`,
+            { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'ignore'] }
+          ).trim();
+
+          userBranches.push({
+            name: branchName,
+            protected: protectedStatus === 'true'
+          });
+        }
+      } catch (error) {
+        // Branch might not exist or other error, skip it
+        continue;
+      }
+    }
+
+    return userBranches;
+  });
+
   const prService = new PRService(tmux, git, github, claude, handover, config);
 
   // Create Express app
@@ -60,7 +131,7 @@ export function createWebServer(options: ServerOptions = {}) {
   const authMiddleware = requireAuth(config.repo);
 
   // Setup API routes (protected by auth middleware)
-  setupAPI(app, { discovery, sessionCache, prCache, prService, github, config, configPath }, authMiddleware);
+  setupAPI(app, { discovery, sessionCache, prCache, branchCache, prService, github, config, configPath }, authMiddleware);
 
   // Setup Terminal WebSocket (will handle auth internally)
   const terminalWss = setupTerminalWebSocket(server, config.repo);

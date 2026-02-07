@@ -130,6 +130,7 @@ export class PRService {
       branch: metadata.branchName,
       baseBranch,
       userPrompt: params.prompt,
+      prUrl: pr.url,
       guidelines: this.formatGuidelines(),
       skipPermissions: params.skipPermissions,
     });
@@ -214,6 +215,7 @@ export class PRService {
       branch: params.branchName,
       baseBranch,
       userPrompt,
+      prUrl: pr.url,
       guidelines: this.formatGuidelines(),
       skipPermissions: params.skipPermissions,
     });
@@ -288,6 +290,7 @@ export class PRService {
       branch: pr.branch,
       baseBranch: pr.baseBranch,
       userPrompt,
+      prUrl: pr.url,
       guidelines: this.formatGuidelines(),
       skipPermissions: skipPermissions,
     });

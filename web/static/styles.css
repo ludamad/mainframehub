@@ -427,6 +427,30 @@ body::before {
   text-shadow: 0 0 5px var(--term-glow);
 }
 
+.session-status-indicator.has-session {
+  color: var(--term-fg);
+}
+
+.session-meta {
+  display: flex;
+  gap: 15px;
+  color: var(--term-dim);
+  font-size: 0.75em;
+  margin-top: 8px;
+}
+
+.session-time {
+  opacity: 0.8;
+}
+
+.session-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
 /* Deprecated - keeping for backwards compat */
 .session-id {
   color: var(--term-bright);
@@ -548,6 +572,22 @@ body::before {
 
 .btn-secondary:hover {
   color: var(--term-fg);
+}
+
+.btn-danger {
+  border-color: #ff4444;
+  color: #ff4444;
+}
+
+.btn-danger:hover {
+  background: rgba(255, 68, 68, 0.2);
+  border-color: #ff6666;
+  box-shadow: 0 0 10px rgba(255, 68, 68, 0.3);
+}
+
+.btn-sm {
+  padding: 6px 12px;
+  font-size: 0.8em;
 }
 
 .btn-close {

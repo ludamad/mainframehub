@@ -30,11 +30,13 @@ function handleRoute() {
   const path = window.location.pathname;
 
   // Terminal opens in separate window now, so no /session/ routing
-  if (path === '/branches') {
+  if (path === '/clones') {
+    showTab('clones');
+  } else if (path === '/branches') {
     showTab('branches');
   } else if (path === '/new-pr') {
     showTab('new-pr');
-  } else if (path === '/my-prs' || path === '/' || path === '') {
+  } else if (path === '/my-prs' || path === '/') {
     showTab('my-prs');
   } else {
     showTab('my-prs');
@@ -69,7 +71,9 @@ function showTab(tabName) {
   });
 
   // Load data if needed
-  if (tabName === 'my-prs') {
+  if (tabName === 'clones') {
+    loadClones();
+  } else if (tabName === 'my-prs') {
     loadPRs();
   } else if (tabName === 'branches') {
     loadBranches();
@@ -231,7 +235,7 @@ async function saveToken() {
 
     // Load initial data
     showToast('Token saved successfully', 'success');
-    loadSessions();
+    loadPRs();
   } catch (error) {
     errorDiv.textContent = `Error: ${error.message}`;
     errorDiv.style.display = 'block';
@@ -254,29 +258,91 @@ async function fetchWithAuth(url, options = {}) {
   });
 }
 
-// Sessions
-async function loadSessions() {
+// Clones (previously Sessions)
+async function loadClones() {
   try {
-    showLoading('sessions');
+    showLoading('clones');
 
     // Trigger background cache refresh (don't wait for it)
     fetchWithAuth('/api/discover/refresh', { method: 'POST' }).catch(err => {
       console.warn('Failed to trigger cache refresh:', err);
     });
 
-    // Get sessions from cache (fast)
-    const response = await fetchWithAuth('/api/discover');
+    // Get all clones from the clones directory
+    const response = await fetchWithAuth('/api/clones');
     const data = await response.json();
 
-    renderSessions(data.sessions);
+    renderClones(data.clones);
   } catch (error) {
-    showToast(`Error loading sessions: ${error.message}`, 'error');
-    hideLoading('sessions');
+    showToast(`Error loading clones: ${error.message}`, 'error');
+    hideLoading('clones');
   }
 }
 
-function refreshSessions() {
-  loadSessions();
+function refreshClones() {
+  loadClones();
+}
+
+async function deleteClone(cloneName, event) {
+  event.stopPropagation();
+
+  if (!confirm(`Delete clone "${cloneName}"?\n\nThis will remove the local directory and kill any associated tmux session.`)) {
+    return;
+  }
+
+  try {
+    setStatus('BUSY');
+    const response = await fetchWithAuth(`/api/clones/${encodeURIComponent(cloneName)}`, {
+      method: 'DELETE'
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.message || 'Failed to delete clone');
+    }
+
+    showToast(`Clone "${cloneName}" deleted`, 'success');
+    loadClones(); // Refresh the list
+  } catch (error) {
+    showToast(`Error: ${error.message}`, 'error');
+  } finally {
+    setStatus('READY');
+  }
+}
+
+async function setupAndOpenClone(prNumber, event) {
+  event.stopPropagation();
+
+  try {
+    setStatus('BUSY');
+    showToast(`Setting up PR #${prNumber}...`, 'info');
+
+    const response = await fetchWithAuth(`/api/setup/${prNumber}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({})
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.message || 'Setup failed');
+    }
+
+    const result = await response.json();
+    showToast(`Setup complete: ${result.pr.title}`, 'success');
+
+    // Open terminal
+    setTimeout(() => {
+      window.open(`/terminal.html?session=${result.session.id}`, '_blank');
+    }, 500);
+
+    // Refresh clones list
+    loadClones();
+  } catch (error) {
+    showToast(`Error: ${error.message}`, 'error');
+  } finally {
+    setStatus('READY');
+  }
 }
 
 // PRs
@@ -475,6 +541,13 @@ function cancelSetup(prNumber) {
 async function loadBranches() {
   try {
     showLoading('branches');
+
+    // Trigger background cache refresh (don't wait for it)
+    fetchWithAuth('/api/branches/refresh', { method: 'POST' }).catch(err => {
+      console.warn('Failed to trigger branch cache refresh:', err);
+    });
+
+    // Get branches from cache (fast)
     const response = await fetchWithAuth('/api/branches');
 
     if (!response.ok) {
@@ -560,14 +633,14 @@ async function createPRFromBranch(branchName) {
   }
 }
 
-function renderSessions(sessions) {
-  const list = document.getElementById('sessions-list');
-  const loading = document.getElementById('sessions-loading');
-  const empty = document.getElementById('sessions-empty');
+function renderClones(clones) {
+  const list = document.getElementById('clones-list');
+  const loading = document.getElementById('clones-loading');
+  const empty = document.getElementById('clones-empty');
 
   loading.style.display = 'none';
 
-  if (sessions.length === 0) {
+  if (clones.length === 0) {
     list.style.display = 'none';
     empty.style.display = 'flex';
     return;
@@ -576,38 +649,72 @@ function renderSessions(sessions) {
   empty.style.display = 'none';
   list.style.display = 'flex';
 
-  list.innerHTML = sessions.map(session => {
-    // Use PR title as the main name, or session ID as fallback
-    const displayName = session.pr ? session.pr.title : session.sessionId;
-    const subtitle = session.pr
-      ? `PR #${session.pr.number} • ${session.pr.branch} → ${session.pr.baseBranch}`
-      : 'No PR associated';
+  list.innerHTML = clones.map(clone => {
+    // Use PR title as the main name, or directory name as fallback
+    const displayName = clone.pr ? clone.pr.title : clone.name;
+    const subtitle = clone.pr
+      ? `PR #${clone.pr.number} • ${clone.pr.branch} → ${clone.pr.baseBranch}`
+      : clone.path;
 
     // GitHub button if PR is associated
-    const githubButton = session.pr
-      ? `<a href="${session.pr.url}" target="_blank" class="session-github-btn" onclick="event.stopPropagation()" title="View PR on GitHub">
+    const githubButton = clone.pr
+      ? `<a href="${clone.pr.url}/files" target="_blank" class="session-github-btn" onclick="event.stopPropagation()" title="View PR files on GitHub">
           <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
             <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
           </svg>
         </a>`
       : '';
 
+    // Action button - either open terminal or setup+attach
+    const actionButton = clone.hasSession
+      ? `<button class="btn btn-primary btn-sm" onclick="openTerminalBySession('${clone.sessionId}'); event.stopPropagation();">OPEN</button>`
+      : clone.prNumber
+        ? `<button class="btn btn-primary btn-sm" onclick="setupAndOpenClone(${clone.prNumber}, event)">SETUP</button>`
+        : '';
+
+    // Delete button
+    const deleteButton = `<button class="btn btn-danger btn-sm" onclick="deleteClone('${clone.name}', event)" title="Delete clone">✕</button>`;
+
+    // Format modified time
+    const modifiedDate = new Date(clone.modifiedAt);
+    const timeAgo = formatTimeAgo(modifiedDate);
+
     return `
-      <div class="session-item ${session.isActive ? 'active' : ''}" onclick="openTerminalBySession('${session.sessionId}')">
+      <div class="session-item ${clone.isActive ? 'active' : ''}" ${clone.hasSession ? `onclick="openTerminalBySession('${clone.sessionId}')"` : ''}>
         <div class="session-header">
           <span class="session-name">${displayName}</span>
           <div class="session-header-actions">
             ${githubButton}
-            <span class="session-status-indicator ${session.isActive ? 'active' : ''}">
-              ${session.isActive ? '●' : '○'}
+            <span class="session-status-indicator ${clone.isActive ? 'active' : clone.hasSession ? 'has-session' : ''}">
+              ${clone.isActive ? '●' : clone.hasSession ? '◐' : '○'}
             </span>
           </div>
         </div>
         <div class="session-subtitle">${subtitle}</div>
-        <div class="session-id-small">${session.sessionId}</div>
+        <div class="session-meta">
+          <span class="session-time">Modified ${timeAgo}</span>
+        </div>
+        <div class="session-actions">
+          ${actionButton}
+          ${deleteButton}
+        </div>
       </div>
     `;
   }).join('');
+}
+
+function formatTimeAgo(date) {
+  const now = new Date();
+  const diffMs = now - date;
+  const diffMins = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMs / 3600000);
+  const diffDays = Math.floor(diffMs / 86400000);
+
+  if (diffMins < 1) return 'just now';
+  if (diffMins < 60) return `${diffMins}m ago`;
+  if (diffHours < 24) return `${diffHours}h ago`;
+  if (diffDays < 7) return `${diffDays}d ago`;
+  return date.toLocaleDateString();
 }
 
 function showLoading(type) {
@@ -929,7 +1036,7 @@ function closeTerminal() {
   document.getElementById('terminal-view').style.display = 'none';
   document.getElementById('main-content').style.display = 'flex';
 
-  // Navigate back to sessions
+  // Navigate back to my-prs
   navigate('/');
 
   setStatus('READY');

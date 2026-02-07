@@ -23,8 +23,26 @@
       <!-- Tabs -->
       <div class="tabs">
         <button class="tab active" data-tab="my-prs">MY PRs</button>
+        <button class="tab" data-tab="clones">CLONES</button>
         <button class="tab" data-tab="branches">BRANCHES</button>
         <button class="tab" data-tab="new-pr">NEW PR</button>
+      </div>
+
+      <!-- Tab: Clones -->
+      <div id="tab-clones" class="tab-content">
+        <div class="tab-header">
+          <div class="tab-title">CLONED REPOSITORIES</div>
+          <div class="tab-actions">
+            <button class="btn btn-secondary" onclick="openSetupModal()">SETUP PR</button>
+            <button class="btn btn-primary" onclick="refreshClones()">REFRESH</button>
+          </div>
+        </div>
+        <div id="clones-loading" class="loading" style="display: none;">LOADING...</div>
+        <div id="clones-list" class="sessions-list"></div>
+        <div id="clones-empty" class="empty" style="display: none;">
+          <div class="empty-message">NO CLONES FOUND</div>
+          <button class="btn btn-secondary" onclick="showTab('new-pr')">CREATE NEW PR</button>
+        </div>
       </div>
 
       <!-- Tab: Branches -->
@@ -79,6 +97,7 @@
               <button type="button" class="btn btn-secondary" onclick="document.getElementById('base-branch').value='next'">NEXT</button>
               <button type="button" class="btn btn-secondary" onclick="document.getElementById('base-branch').value='merge-train/barretenberg'">MT/BB</button>
               <button type="button" class="btn btn-secondary" onclick="document.getElementById('base-branch').value='merge-train/avm'">MT/AVM</button>
+              <button type="button" class="btn btn-secondary" onclick="document.getElementById('base-branch').value='merge-train/spartan'">MT/SPARTAN</button>
             </div>
             <div class="form-hint">The branch to create the PR against</div>
           </div>
