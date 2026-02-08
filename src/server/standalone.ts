@@ -248,7 +248,7 @@ async function main(): Promise<void> {
     },
   };
 
-  const port = parseInt(process.env.PORT ?? '3000', 10);
+  const port = parseInt(process.env.PORT ?? '3002', 10);
 
   createHttpServer(container, {
     port,

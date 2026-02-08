@@ -185,7 +185,7 @@ export async function activate(
   // -----------------------------------------------------------------------
   const httpServer = createHttpServer(
     container,
-    { port: 3000, extensionPath: context.extensionPath },
+    { port: 3002, extensionPath: context.extensionPath },
     outputChannel,
   );
   context.subscriptions.push(new vscode.Disposable(() => httpServer.dispose()));
