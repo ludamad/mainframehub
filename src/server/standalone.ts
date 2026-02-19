@@ -235,6 +235,7 @@ async function main(): Promise<void> {
     tmux,
     github,
     prService,
+    handover,
     fs: {
       rmdir: async (p: string, opts?: { recursive?: boolean }) => {
         await rm(p, { recursive: opts?.recursive ?? false, force: true });

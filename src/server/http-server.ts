@@ -244,6 +244,42 @@ async function handleApi(
         sendJson({ ok: true });
         return;
 
+      case '/api/session-output': {
+        const params = new URL(req.url ?? '/', 'http://localhost').searchParams;
+        const id = params.get('id');
+        const lines = parseInt(params.get('lines') ?? '200', 10);
+        if (!id) {
+          sendJson({ error: 'Missing id parameter' }, 400);
+          return;
+        }
+        const output = await container.tmux.capturePane(id, lines);
+        sendJson({ output });
+        return;
+      }
+
+      case '/api/resume-session': {
+        const body = await readBody();
+        const sessionId = body.sessionId as string;
+        const claudeSessionId = body.claudeSessionId as string;
+        await container.handover.resume(
+          sessionId,
+          claudeSessionId,
+          body.skipPermissions as boolean | undefined,
+        );
+        sendJson({ ok: true });
+        return;
+      }
+
+      case '/api/send-keys': {
+        const body = await readBody();
+        await container.tmux.sendKeys(
+          body.sessionId as string,
+          body.keys as string,
+        );
+        sendJson({ ok: true });
+        return;
+      }
+
       default:
         res.writeHead(404);
         res.end(JSON.stringify({ error: 'Not found' }));
