@@ -12,6 +12,7 @@
 import * as http from 'http';
 import * as fs from 'fs';
 import * as path from 'path';
+import { writeFile } from 'fs/promises';
 import type { ServerContainer, ServerLogger } from './types';
 import { createMcpServer } from './mcp';
 
@@ -306,6 +307,25 @@ async function handleApi(
           }),
         );
         sendJson(statuses);
+        return;
+      }
+
+      case '/api/focus-session': {
+        const body = await readBody();
+        const sessionId = body.sessionId as string;
+        const exists = await container.tmux.exists(sessionId);
+        if (!exists) {
+          sendJson({ error: `Session ${sessionId} does not exist` }, 404);
+          return;
+        }
+        const focusFile = process.env.MFH_FOCUS_FILE;
+        if (focusFile) {
+          await writeFile(focusFile, sessionId);
+          await container.tmux.detachAllClients();
+          sendJson({ ok: true, switched: true });
+        } else {
+          sendJson({ ok: true, switched: false, command: `tmux attach -t ${sessionId}` });
+        }
         return;
       }
 

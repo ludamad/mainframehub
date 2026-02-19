@@ -144,6 +144,24 @@ export class TmuxService {
   }
 
   /**
+   * Detach all connected tmux clients.
+   * Used by focus-switching to unblock a script's `tmux attach` call.
+   */
+  async detachAllClients(): Promise<void> {
+    const result = await runSafe('tmux', [
+      'list-clients', '-F', '#{client_name}',
+    ]);
+
+    if (result.exitCode !== 0 || !result.stdout) {
+      return;
+    }
+
+    for (const client of result.stdout.split('\n').filter(Boolean)) {
+      await runSafe('tmux', ['detach-client', '-t', client]);
+    }
+  }
+
+  /**
    * Get the current foreground command running in a tmux pane.
    * Returns the process name (e.g. 'claude', 'node', 'bash', 'zsh').
    * Returns null if the session does not exist.

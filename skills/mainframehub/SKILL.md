@@ -26,6 +26,7 @@ You have access to MainframeHub MCP tools for managing GitHub PR workflows. Each
 | `mfh_send_keys` | Send text to a tmux session (followed by Enter) — talk to a worker Claude |
 | `mfh_worker_status` | Check which workers are running vs finished (by inspecting tmux pane process) |
 | `mfh_attach_session` | Get the `tmux attach` command for a session (informational for the user) |
+| `mfh_focus_session` | Switch the user's terminal to view a specific tmux session (auto-switches if using mfh.sh) |
 
 ## Key Concepts
 
@@ -54,6 +55,12 @@ You have access to MainframeHub MCP tools for managing GitHub PR workflows. Each
 ### Finishing work
 1. Use `mfh_merge_pr` when a PR is ready (default: squash merge)
 2. Use `mfh_close_pr` to abandon a PR and clean up its worktree
+
+### Showing work to the user
+1. Use `mfh_focus_session` to switch the user's terminal to a specific session
+2. When using `mfh.sh`, this automatically detaches the current tmux view and attaches to the target
+3. The user can exit a worker session (Ctrl-B D) to return to your (mfh-main) session
+4. Use this to show the user interesting progress, completed work, or when they need to interact directly
 
 ### Orchestrating multiple workers
 1. Use `/mfh-orchestrate` for guided multi-agent workflows

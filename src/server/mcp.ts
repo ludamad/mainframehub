@@ -14,6 +14,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { z } from 'zod';
 import * as crypto from 'crypto';
+import { writeFile } from 'fs/promises';
 import type * as http from 'http';
 import type { ServerContainer, ServerLogger } from './types';
 
@@ -160,6 +161,34 @@ function registerTools(mcp: McpServer, container: ServerContainer): void {
         content: [{
           type: 'text' as const,
           text: `To attach to this session, run:\n\n  tmux attach -t ${sessionId}\n\nThis opens the worker's terminal so you can observe or interact directly.`,
+        }],
+      };
+    },
+  );
+
+  mcp.tool(
+    'mfh_focus_session',
+    'Switch the user\'s terminal to view a specific tmux session. If the user is running mfh.sh, their terminal will automatically switch. Otherwise returns instructions.',
+    {
+      sessionId: z.string().describe('Tmux session ID to focus on (e.g. pr-42 or mfh-main)'),
+    },
+    async ({ sessionId }) => {
+      const exists = await container.tmux.exists(sessionId);
+      if (!exists) {
+        return { content: [{ type: 'text' as const, text: `Session ${sessionId} does not exist.` }], isError: true };
+      }
+
+      const focusFile = process.env.MFH_FOCUS_FILE;
+      if (focusFile) {
+        await writeFile(focusFile, sessionId);
+        await container.tmux.detachAllClients();
+        return { content: [{ type: 'text' as const, text: `Switching user focus to ${sessionId}` }] };
+      }
+
+      return {
+        content: [{
+          type: 'text' as const,
+          text: `To view this session: tmux attach -t ${sessionId}`,
         }],
       };
     },
