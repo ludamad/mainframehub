@@ -22,7 +22,11 @@ const CLAUDE_PROJECTS_DIR = join(
 );
 
 export class ClaudeHandoverService {
-  constructor(private tmux: TmuxService) {}
+  private workerModel: string;
+
+  constructor(private tmux: TmuxService, workerModel = '') {
+    this.workerModel = workerModel;
+  }
 
   /**
    * Initialize a Claude session with full PR context.
@@ -141,8 +145,13 @@ export class ClaudeHandoverService {
   ): Promise<void> {
     const escaped = prompt.replace(/'/g, "'\\''");
 
-    const claudeCommand = skipPermissions
-      ? `claude '${escaped}' --dangerously-skip-permissions`
+    const flags = [
+      this.workerModel ? `--model ${this.workerModel}` : '',
+      skipPermissions ? '--dangerously-skip-permissions' : '',
+    ].filter(Boolean).join(' ');
+
+    const claudeCommand = flags
+      ? `claude '${escaped}' ${flags}`
       : `claude '${escaped}'`;
 
     await this.tmux.sendKeys(sessionId, claudeCommand);

@@ -180,7 +180,7 @@ export class ServiceContainer implements vscode.Disposable {
     const github = new GitHubService(token);
     const claude = new ClaudeService();
 
-    const handover = new ClaudeHandoverService(tmux);
+    const handover = new ClaudeHandoverService(tmux, config.workerModel);
 
     const discovery = new DiscoveryService(
       tmux,

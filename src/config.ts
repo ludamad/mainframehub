@@ -38,6 +38,7 @@ export function readConfig(): ExtensionConfig {
       branchFormat: cfg.get<string>('guidelines.branchFormat'),
       commitFormat: cfg.get<string>('guidelines.commitFormat'),
     },
+    workerModel: cfg.get<string>('workerModel', ''),
     autoRefreshInterval: cfg.get<number>('autoRefreshInterval', 30_000),
     prCacheTTL: cfg.get<number>('prCacheTTL', 3_600_000),
   };

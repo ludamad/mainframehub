@@ -91,6 +91,7 @@ export interface ExtensionConfig {
     branchFormat?: string;
     commitFormat?: string;
   };
+  workerModel: string; // Claude model for worker agents (e.g. 'haiku', 'sonnet')
   autoRefreshInterval: number; // milliseconds
   prCacheTTL: number; // milliseconds
 }

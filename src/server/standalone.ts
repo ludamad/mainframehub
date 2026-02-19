@@ -105,6 +105,7 @@ function buildConfig(repoPath: string): ExtensionConfig {
       branchFormat: (existing['guidelines.branchFormat'] as string) ?? undefined,
       commitFormat: (existing['guidelines.commitFormat'] as string) ?? undefined,
     },
+    workerModel: (existing.workerModel as string) ?? '',
     autoRefreshInterval: (existing.autoRefreshInterval as number) ?? 30_000,
     prCacheTTL: (existing.prCacheTTL as number) ?? 3_600_000,
   };
@@ -194,7 +195,7 @@ async function main(): Promise<void> {
   const git = new GitService();
   const github = new GitHubService(token);
   const claude = new ClaudeService();
-  const handover = new ClaudeHandoverService(tmux);
+  const handover = new ClaudeHandoverService(tmux, config.workerModel);
 
   const discovery = new DiscoveryService(
     tmux, git, github, config.sessionPrefix, logger,

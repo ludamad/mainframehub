@@ -416,6 +416,11 @@
           "default": false,
           "description": "Skip the error editing InputBox in Fix This and use gathered text directly."
         },
+        "mfh.workerModel": {
+          "type": "string",
+          "default": "",
+          "description": "Claude model for worker agents (e.g. 'haiku', 'sonnet'). Empty = CLI default."
+        },
         "mfh.guidelines.branchFormat": {
           "type": "string",
           "default": "",
