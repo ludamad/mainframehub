@@ -16,5 +16,5 @@
     "sourceMap": true
   },
   "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist", "src/**/*.test.ts", "src/webview/app.ts", "src/webview/postmessage-bridge.ts", "src/webview/http-bridge.ts", "src/server/standalone.ts"]
+  "exclude": ["node_modules", "dist", "src/**/*.test.ts", "src/webview/app.ts", "src/webview/postmessage-bridge.ts", "src/webview/http-bridge.ts", "src/server/standalone.ts", "src/server/mcp.ts"]
 }

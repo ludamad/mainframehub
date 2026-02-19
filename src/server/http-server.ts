@@ -13,6 +13,7 @@ import * as http from 'http';
 import * as fs from 'fs';
 import * as path from 'path';
 import type { ServerContainer, ServerLogger } from './types';
+import { createMcpServer } from './mcp';
 
 const CONTENT_TYPES: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -32,6 +33,7 @@ export function createHttpServer(
   logger: ServerLogger,
 ): { server: http.Server; port: number; dispose: () => void } {
   const distWebview = path.join(options.extensionPath, 'dist', 'webview');
+  const mcpServer = createMcpServer(container, logger);
 
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url ?? '/', `http://localhost:${options.port}`);
@@ -48,6 +50,12 @@ export function createHttpServer(
     }
 
     try {
+      // MCP protocol endpoint
+      if (url.pathname === '/mcp') {
+        await mcpServer.handleRequest(req, res);
+        return;
+      }
+
       // Static files
       if (req.method === 'GET' && !url.pathname.startsWith('/api/')) {
         await serveStatic(url.pathname, distWebview, res);

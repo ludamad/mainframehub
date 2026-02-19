@@ -461,6 +461,7 @@
     "vitest": "^4.0.18"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.26.0",
     "@octokit/rest": "^21.0.0"
   }
 }
