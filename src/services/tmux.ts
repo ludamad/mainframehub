@@ -142,6 +142,25 @@ export class TmuxService {
 
     return stripAnsi(result.stdout);
   }
+
+  /**
+   * Get the current foreground command running in a tmux pane.
+   * Returns the process name (e.g. 'claude', 'node', 'bash', 'zsh').
+   * Returns null if the session does not exist.
+   */
+  async getPaneCommand(id: string): Promise<string | null> {
+    const result = await runSafe('tmux', [
+      'display-message',
+      '-t', id,
+      '-p', '#{pane_current_command}',
+    ]);
+
+    if (result.exitCode !== 0 || !result.stdout) {
+      return null;
+    }
+
+    return result.stdout;
+  }
 }
 
 /**

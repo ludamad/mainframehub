@@ -292,6 +292,23 @@ async function handleApi(
         return;
       }
 
+      case '/api/worker-status': {
+        const sessions = await container.tmux.list('pr-');
+        const statuses = await Promise.all(
+          sessions.map(async (session) => {
+            const command = await container.tmux.getPaneCommand(session.id);
+            const isShell = command === 'bash' || command === 'zsh' || command === 'sh' || command === 'fish';
+            return {
+              sessionId: session.id,
+              command: command ?? 'unknown',
+              status: (command === null || isShell) ? 'finished' : 'running',
+            };
+          }),
+        );
+        sendJson(statuses);
+        return;
+      }
+
       default:
         res.writeHead(404);
         res.end(JSON.stringify({ error: 'Not found' }));

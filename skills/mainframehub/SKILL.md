@@ -24,23 +24,26 @@ You have access to MainframeHub MCP tools for managing GitHub PR workflows. Each
 | `mfh_get_session_output` | Read recent terminal output from a worker's tmux session (ANSI-stripped) |
 | `mfh_resume_session` | Resume Claude in a tmux session with `claude --resume <id>` |
 | `mfh_send_keys` | Send text to a tmux session (followed by Enter) — talk to a worker Claude |
+| `mfh_worker_status` | Check which workers are running vs finished (by inspecting tmux pane process) |
+| `mfh_attach_session` | Get the `tmux attach` command for a session (informational for the user) |
 
 ## Key Concepts
 
 - **Worker Claude**: A Claude Code instance running in a tmux session, working on a specific PR. Each worker has its own worktree and conversation.
 - **Session ID**: Tmux session name, always `pr-{number}` (e.g. `pr-42`).
-- **Supervisor pattern**: You (the supervisor) create PRs, monitor workers via `mfh_get_session_output`, and give them instructions via `mfh_send_keys`.
+- **Supervisor pattern**: You (the supervisor) create PRs, monitor workers via `mfh_worker_status` and `mfh_get_session_output`, and give them instructions via `mfh_send_keys`.
+- **Worker status**: A worker is "running" if its tmux pane shows `claude` or `node`. It's "finished" when the shell (`bash`/`zsh`) is the foreground process — meaning Claude exited.
 
 ## Workflow Patterns
 
 ### Creating work
 1. Use `mfh_create_pr` with a clear prompt describing what to implement
 2. The worker Claude starts automatically in the new tmux session
-3. Monitor progress with `mfh_get_session_output`
+3. Monitor progress with `mfh_worker_status` or `mfh_get_session_output`
 
 ### Checking on workers
-1. Use `mfh_list_prs` to see all PRs and their status
-2. Use `mfh_get_session_output` with a session ID to read what a worker is doing
+1. Use `mfh_worker_status` for a quick running/finished overview of all sessions
+2. Use `mfh_get_session_output` with a session ID to read what a specific worker is doing
 3. The output is clean prose (ANSI codes stripped) — you can understand it directly
 
 ### Giving instructions
@@ -51,3 +54,8 @@ You have access to MainframeHub MCP tools for managing GitHub PR workflows. Each
 ### Finishing work
 1. Use `mfh_merge_pr` when a PR is ready (default: squash merge)
 2. Use `mfh_close_pr` to abandon a PR and clean up its worktree
+
+### Orchestrating multiple workers
+1. Use `/mfh-orchestrate` for guided multi-agent workflows
+2. Or manually: create PRs with `mfh_create_pr`, poll with `mfh_worker_status`, read results with `mfh_get_session_output`
+3. Maximum 5 concurrent workers recommended

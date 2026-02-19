@@ -123,6 +123,47 @@ function registerTools(mcp: McpServer, container: ServerContainer): void {
       return { content: [{ type: 'text' as const, text: `Sent to ${sessionId}.` }] };
     },
   );
+
+  mcp.tool(
+    'mfh_worker_status',
+    'Check which worker sessions are running vs finished. Returns each session with its process name and status.',
+    {},
+    async () => {
+      const sessions = await container.tmux.list('pr-');
+      const statuses = await Promise.all(
+        sessions.map(async (session) => {
+          const command = await container.tmux.getPaneCommand(session.id);
+          const isShell = command === 'bash' || command === 'zsh' || command === 'sh' || command === 'fish';
+          return {
+            sessionId: session.id,
+            command: command ?? 'unknown',
+            status: (command === null || isShell) ? 'finished' : 'running',
+          };
+        }),
+      );
+      return { content: [{ type: 'text' as const, text: JSON.stringify(statuses, null, 2) }] };
+    },
+  );
+
+  mcp.tool(
+    'mfh_attach_session',
+    'Get the tmux attach command for a worker session. Returns instructions for the user to run in their terminal.',
+    {
+      sessionId: z.string().describe('Tmux session ID (e.g. pr-123)'),
+    },
+    async ({ sessionId }) => {
+      const exists = await container.tmux.exists(sessionId);
+      if (!exists) {
+        return { content: [{ type: 'text' as const, text: `Session ${sessionId} does not exist.` }] };
+      }
+      return {
+        content: [{
+          type: 'text' as const,
+          text: `To attach to this session, run:\n\n  tmux attach -t ${sessionId}\n\nThis opens the worker's terminal so you can observe or interact directly.`,
+        }],
+      };
+    },
+  );
 }
 
 // ---------------------------------------------------------------------------

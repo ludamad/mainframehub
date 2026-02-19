@@ -293,4 +293,31 @@ describe('TmuxService', () => {
       );
     });
   });
+
+  describe('getPaneCommand', () => {
+    it('returns command name when session exists', async () => {
+      mockedRunSafe.mockResolvedValue({
+        stdout: 'claude',
+        stderr: '',
+        exitCode: 0,
+      });
+
+      const result = await svc.getPaneCommand('pr-42');
+
+      expect(mockedRunSafe).toHaveBeenCalledWith('tmux', [
+        'display-message', '-t', 'pr-42', '-p', '#{pane_current_command}',
+      ]);
+      expect(result).toBe('claude');
+    });
+
+    it('returns null when session does not exist', async () => {
+      mockedRunSafe.mockResolvedValue({
+        stdout: '',
+        stderr: 'no session',
+        exitCode: 1,
+      });
+
+      expect(await svc.getPaneCommand('pr-999')).toBeNull();
+    });
+  });
 });
