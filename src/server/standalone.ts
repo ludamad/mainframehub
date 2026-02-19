@@ -256,6 +256,20 @@ async function main(): Promise<void> {
     extensionPath: path.resolve(__dirname, '..'),
   }, logger);
 
+  // Write MCP config for Claude Code discovery
+  const mcpPath = path.join(process.cwd(), '.vscode', 'mcp.json');
+  const mcpConfig = {
+    servers: {
+      mainframehub: {
+        type: 'http',
+        url: `http://127.0.0.1:${port}/mcp`,
+      },
+    },
+  };
+  await mkdir(path.dirname(mcpPath), { recursive: true });
+  await writeFile(mcpPath, JSON.stringify(mcpConfig, null, 2) + '\n');
+  logger.appendLine(`[standalone] Wrote MCP config to ${mcpPath}`);
+
   logger.appendLine(`[standalone] Server starting on http://127.0.0.1:${port}`);
 }
 

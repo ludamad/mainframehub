@@ -19,6 +19,7 @@
  */
 
 import * as vscode from 'vscode';
+import * as path from 'path';
 import { setRunLogger } from './lib/run';
 import { readConfig } from './config';
 import {
@@ -197,6 +198,29 @@ export async function activate(
       );
     }),
   );
+
+  // -----------------------------------------------------------------------
+  // 9d. Write MCP config for Claude Code discovery
+  // -----------------------------------------------------------------------
+  const workspaceFolders = vscode.workspace.workspaceFolders;
+  if (workspaceFolders && workspaceFolders.length > 0) {
+    const vscodePath = path.join(workspaceFolders[0].uri.fsPath, '.vscode');
+    const mcpPath = path.join(vscodePath, 'mcp.json');
+    const mcpConfig = {
+      servers: {
+        mainframehub: {
+          type: 'http',
+          url: `http://127.0.0.1:${httpServer.port}/mcp`,
+        },
+      },
+    };
+    import('fs/promises').then(({ mkdir, writeFile }) =>
+      mkdir(vscodePath, { recursive: true })
+        .then(() => writeFile(mcpPath, JSON.stringify(mcpConfig, null, 2) + '\n'))
+        .then(() => outputChannel.appendLine(`[activate] Wrote MCP config to ${mcpPath}`))
+        .catch((err) => outputChannel.appendLine(`[activate] MCP config write failed: ${err}`)),
+    );
+  }
 
   // -----------------------------------------------------------------------
   // 10. Register all commands
