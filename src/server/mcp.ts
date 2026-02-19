@@ -5,28 +5,19 @@
  * the ServerContainer directly — the same container used by VS Code
  * commands and HTTP routes.
  *
- * The McpServer is connected to a StreamableHTTPServerTransport mounted
- * at /mcp on the existing HTTP server.
+ * Uses session-based Streamable HTTP transport: each client gets a
+ * session ID on `initialize`, includes it in subsequent requests.
+ * Session cleanup happens on DELETE /mcp or when the server shuts down.
  */
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { z } from 'zod';
+import * as crypto from 'crypto';
 import type * as http from 'http';
 import type { ServerContainer, ServerLogger } from './types';
 
-export function createMcpServer(
-  container: ServerContainer,
-  logger: ServerLogger,
-): { handleRequest: (req: http.IncomingMessage, res: http.ServerResponse) => Promise<void> } {
-  const mcp = new McpServer(
-    { name: 'mainframehub', version: '0.2.0' },
-  );
-
-  // -------------------------------------------------------------------------
-  // Tools
-  // -------------------------------------------------------------------------
-
+function registerTools(mcp: McpServer, container: ServerContainer): void {
   mcp.tool(
     'mfh_list_prs',
     'List all PRs grouped by status (active session, has clone, not set up, closed with clone)',
@@ -132,21 +123,80 @@ export function createMcpServer(
       return { content: [{ type: 'text' as const, text: `Sent to ${sessionId}.` }] };
     },
   );
+}
 
-  // -------------------------------------------------------------------------
-  // Transport — stateless Streamable HTTP (one shared instance)
-  // -------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// Session-based transport manager
+// ---------------------------------------------------------------------------
 
-  const transport = new StreamableHTTPServerTransport({
-    sessionIdGenerator: undefined, // stateless mode
-  });
+export function createMcpServer(
+  container: ServerContainer,
+  logger: ServerLogger,
+): { handleRequest: (req: http.IncomingMessage, res: http.ServerResponse) => Promise<void> } {
+  const sessions = new Map<string, StreamableHTTPServerTransport>();
 
-  mcp.connect(transport).then(
-    () => logger.appendLine('[mcp] MCP server connected to transport'),
-    (err) => logger.appendLine(`[mcp] Failed to connect: ${err}`),
-  );
+  async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+    // DELETE = client closing a session
+    if (req.method === 'DELETE') {
+      const sessionId = req.headers['mcp-session-id'] as string | undefined;
+      if (sessionId && sessions.has(sessionId)) {
+        const transport = sessions.get(sessionId)!;
+        await transport.close();
+        sessions.delete(sessionId);
+        logger.appendLine(`[mcp] Session ${sessionId} closed`);
+      }
+      res.writeHead(200);
+      res.end();
+      return;
+    }
 
-  return {
-    handleRequest: (req, res) => transport.handleRequest(req, res),
-  };
+    // GET = SSE stream (for server-initiated notifications)
+    if (req.method === 'GET') {
+      const sessionId = req.headers['mcp-session-id'] as string | undefined;
+      if (sessionId && sessions.has(sessionId)) {
+        await sessions.get(sessionId)!.handleRequest(req, res);
+        return;
+      }
+      res.writeHead(400);
+      res.end(JSON.stringify({ error: 'Missing or invalid session ID' }));
+      return;
+    }
+
+    // POST = RPC calls
+    const sessionId = req.headers['mcp-session-id'] as string | undefined;
+
+    if (sessionId && sessions.has(sessionId)) {
+      // Existing session — route to its transport
+      await sessions.get(sessionId)!.handleRequest(req, res);
+      return;
+    }
+
+    // New session — create McpServer + transport
+    const mcp = new McpServer({ name: 'mainframehub', version: '0.2.0' });
+    registerTools(mcp, container);
+
+    const transport = new StreamableHTTPServerTransport({
+      sessionIdGenerator: () => crypto.randomUUID(),
+    });
+
+    await mcp.connect(transport);
+
+    // Track the session once the transport assigns an ID
+    transport.onclose = () => {
+      if (transport.sessionId) {
+        sessions.delete(transport.sessionId);
+        logger.appendLine(`[mcp] Session ${transport.sessionId} disconnected`);
+      }
+    };
+
+    await transport.handleRequest(req, res);
+
+    // Store the session for future requests
+    if (transport.sessionId) {
+      sessions.set(transport.sessionId, transport);
+      logger.appendLine(`[mcp] New session ${transport.sessionId}`);
+    }
+  }
+
+  return { handleRequest };
 }

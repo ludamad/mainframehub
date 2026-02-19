@@ -50,8 +50,7 @@ function readSettingsFile(): Record<string, unknown> {
   }
 
   const raw = fs.readFileSync(settingsPath, 'utf-8');
-  const stripped = raw.replace(/\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
-  const settings = JSON.parse(stripped);
+  const settings = JSON.parse(raw);
 
   const mfh: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(settings)) {
@@ -118,8 +117,7 @@ async function writeSettings(config: ExtensionConfig): Promise<void> {
   let settings: Record<string, unknown> = {};
   if (fs.existsSync(settingsPath)) {
     const raw = fs.readFileSync(settingsPath, 'utf-8');
-    const stripped = raw.replace(/\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
-    settings = JSON.parse(stripped);
+    settings = JSON.parse(raw);
   }
 
   // Write mfh settings

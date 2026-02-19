@@ -547,8 +547,19 @@ Migrate MainframeHub from a standalone web app (Express + xterm.js) to a **VS Co
 - Same ServiceContainer serves both webview panel and browser clients
 - HTTP bridge (`fetch`-based MfhBridge) for browser context
 - Context detection: `acquireVsCodeApi` → postMessage, else → HTTP
-- `mfh.openInBrowser` command opens browser to `http://127.0.0.1:3000`
+- `mfh.openInBrowser` command opens browser to `http://127.0.0.1:3002`
 - VS Code-only features (openTerminal, openFolder) show toast in browser
+- **Status**: Complete
+
+### Stage 6.5: MCP Server + Claude Session Resume
+- MCP endpoint mounted at `/mcp` on existing HTTP server (port 3002)
+- 9 MCP tools: list_prs, session_states, create_pr, setup_pr, close_pr, merge_pr, get_session_output, resume_session, send_keys
+- `capturePane()` on TmuxService — captures tmux output with ANSI stripping
+- `resume()` on ClaudeHandoverService — `claude --resume <id>` via tmux send-keys
+- Session ID tracking: `findSessionId()`, `getStoredSessionId()`, `storeSessionId()`
+- `.vscode/mcp.json` written on activation for Claude Code auto-discovery
+- `@modelcontextprotocol/sdk` dependency with Streamable HTTP transport
+- Shared `ServerContainer` interface used by VS Code commands, HTTP routes, and MCP tools
 - **Status**: Complete
 
 ---
