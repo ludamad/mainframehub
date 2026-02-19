@@ -120,4 +120,38 @@ export class TmuxService {
   async sendKeys(id: string, keys: string): Promise<void> {
     await run('tmux', ['send-keys', '-t', id, keys, 'Enter']);
   }
+
+  /**
+   * Capture recent terminal output from a tmux pane.
+   *
+   * Returns the last `lines` lines of visible + scrollback content,
+   * with ANSI escape codes stripped and repeated blank lines collapsed
+   * so the output reads as clean prose.
+   */
+  async capturePane(id: string, lines = 200): Promise<string> {
+    const result = await runSafe('tmux', [
+      'capture-pane',
+      '-t', id,
+      '-p',
+      '-S', `-${lines}`,
+    ]);
+
+    if (result.exitCode !== 0) {
+      throw new TmuxError(`Failed to capture pane for session ${id}: ${result.stderr}`);
+    }
+
+    return stripAnsi(result.stdout);
+  }
+}
+
+/**
+ * Strip ANSI escape codes and collapse repeated blank lines.
+ */
+function stripAnsi(text: string): string {
+  // Remove ANSI escape sequences (colors, cursor movement, etc.)
+  // eslint-disable-next-line no-control-regex
+  const cleaned = text.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '');
+
+  // Collapse runs of 3+ blank lines into 2
+  return cleaned.replace(/\n{3,}/g, '\n\n').trim();
 }

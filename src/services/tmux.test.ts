@@ -263,4 +263,34 @@ describe('TmuxService', () => {
       ]);
     });
   });
+
+  describe('capturePane', () => {
+    it('captures output and strips ANSI codes', async () => {
+      mockedRunSafe.mockResolvedValue({
+        stdout: '\x1b[32m✓\x1b[0m test passed\n\n\n\n\nNext section',
+        stderr: '',
+        exitCode: 0,
+      });
+
+      const result = await svc.capturePane('pr-1');
+
+      expect(mockedRunSafe).toHaveBeenCalledWith('tmux', [
+        'capture-pane', '-t', 'pr-1', '-p', '-S', '-200',
+      ]);
+      expect(result).toBe('✓ test passed\n\nNext section');
+      expect(result).not.toContain('\x1b');
+    });
+
+    it('throws TmuxError on failure', async () => {
+      mockedRunSafe.mockResolvedValue({
+        stdout: '',
+        stderr: 'session not found',
+        exitCode: 1,
+      });
+
+      await expect(svc.capturePane('pr-999')).rejects.toThrow(
+        'Failed to capture pane for session pr-999',
+      );
+    });
+  });
 });

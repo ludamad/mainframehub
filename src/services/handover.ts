@@ -2,22 +2,31 @@
  * ClaudeHandoverService — sends an initial Claude prompt into an existing
  * tmux session so that Claude starts working on the right task immediately.
  *
- * Two entry points:
- *   - `initialize()`       — standard PR work context.
+ * Three entry points:
+ *   - `initialize()`        — standard PR work context (first launch).
  *   - `initializeWithError()` — error-fixing context.
+ *   - `resume()`            — resume an existing Claude session by ID.
  *
- * Single quotes inside the prompt are escaped for bash ('\\''). The
- * entire prompt is wrapped in single quotes and delivered via
- * `tmux send-keys`.
+ * Session IDs are discovered by scanning ~/.claude/projects/ after launch.
+ * Each worktree stores its Claude session ID in `.mfh-session`.
  */
 
+import { readdir, readFile, stat, writeFile } from 'fs/promises';
+import { join } from 'path';
 import type { TmuxService } from './tmux';
+
+const CLAUDE_PROJECTS_DIR = join(
+  process.env.HOME ?? '/home/user',
+  '.claude',
+  'projects',
+);
 
 export class ClaudeHandoverService {
   constructor(private tmux: TmuxService) {}
 
   /**
    * Initialize a Claude session with full PR context.
+   * After launching, discovers and stores the Claude session ID.
    */
   async initialize(
     sessionId: string,
@@ -49,6 +58,76 @@ export class ClaudeHandoverService {
   ): Promise<void> {
     const fullContext = this.buildErrorContext(context);
     await this.sendClaude(sessionId, fullContext, context.skipPermissions);
+  }
+
+  /**
+   * Resume an existing Claude conversation by session ID.
+   * Uses `claude --resume <id>`.
+   */
+  async resume(
+    tmuxSessionId: string,
+    claudeSessionId: string,
+    skipPermissions?: boolean,
+  ): Promise<void> {
+    const flags = skipPermissions ? ' --dangerously-skip-permissions' : '';
+    await this.tmux.sendKeys(
+      tmuxSessionId,
+      `claude --resume ${claudeSessionId}${flags}`,
+    );
+  }
+
+  /**
+   * Find the most recent Claude session ID for a worktree path.
+   * Scans ~/.claude/projects/{slug}/ for the newest .jsonl file.
+   * Returns null if no session exists.
+   */
+  async findSessionId(workingDir: string): Promise<string | null> {
+    const slug = workingDir.replace(/\//g, '-');
+    const projectDir = join(CLAUDE_PROJECTS_DIR, slug);
+
+    try {
+      const entries = await readdir(projectDir);
+      const jsonlFiles = entries.filter(
+        (f) => f.endsWith('.jsonl') && !f.includes('/'),
+      );
+
+      if (jsonlFiles.length === 0) {
+        return null;
+      }
+
+      // Find the most recently modified session file
+      let newest: { name: string; mtime: number } | null = null;
+      for (const file of jsonlFiles) {
+        const s = await stat(join(projectDir, file));
+        if (!newest || s.mtimeMs > newest.mtime) {
+          newest = { name: file, mtime: s.mtimeMs };
+        }
+      }
+
+      // Session ID is the filename without .jsonl
+      return newest ? newest.name.replace('.jsonl', '') : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Read the stored Claude session ID for a worktree.
+   */
+  async getStoredSessionId(clonePath: string): Promise<string | null> {
+    try {
+      const content = await readFile(join(clonePath, '.mfh-session'), 'utf-8');
+      return content.trim() || null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Store a Claude session ID for a worktree.
+   */
+  async storeSessionId(clonePath: string, sessionId: string): Promise<void> {
+    await writeFile(join(clonePath, '.mfh-session'), sessionId + '\n');
   }
 
   // -------------------------------------------------------------------

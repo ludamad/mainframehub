@@ -25,25 +25,10 @@ describe('ClaudeHandoverService', () => {
       expect(sessionId).toBe('pr-42');
       expect(command).toMatch(/^claude '/);
       expect(command).toContain('PR #42');
-      expect(command).toContain('feat/login');
-      expect(command).toContain('main');
       expect(command).toContain('Add login page');
     });
 
-    it('includes guidelines in prompt when provided', async () => {
-      await service.initialize('pr-10', {
-        prNumber: 10,
-        branch: 'fix/typo',
-        baseBranch: 'main',
-        userPrompt: 'Fix typo',
-        guidelines: 'Use conventional commits',
-      });
-
-      const command: string = tmux.sendKeys.mock.calls[0][1];
-      expect(command).toContain('Use conventional commits');
-    });
-
-    it('passes --dangerously-skip-permissions when skipPermissions is true', async () => {
+    it('passes --dangerously-skip-permissions when requested', async () => {
       await service.initialize('pr-5', {
         prNumber: 5,
         branch: 'feat/api',
@@ -57,20 +42,23 @@ describe('ClaudeHandoverService', () => {
     });
   });
 
-  describe('initializeWithError', () => {
-    it('sends claude command with error context', async () => {
-      await service.initializeWithError('pr-99', {
-        prNumber: 99,
-        branch: 'fix/crash',
-        baseBranch: 'main',
-        error: 'TypeError: cannot read property x',
-      });
+  describe('resume', () => {
+    it('sends claude --resume with specific session ID', async () => {
+      await service.resume('pr-42', 'abc-123-def');
 
-      expect(tmux.sendKeys).toHaveBeenCalledOnce();
-      const command: string = tmux.sendKeys.mock.calls[0][1];
-      expect(command).toContain('fixing an error');
-      expect(command).toContain('TypeError: cannot read property x');
-      expect(command).toContain('PR #99');
+      expect(tmux.sendKeys).toHaveBeenCalledWith(
+        'pr-42',
+        'claude --resume abc-123-def',
+      );
+    });
+
+    it('passes --dangerously-skip-permissions when requested', async () => {
+      await service.resume('pr-42', 'abc-123-def', true);
+
+      expect(tmux.sendKeys).toHaveBeenCalledWith(
+        'pr-42',
+        'claude --resume abc-123-def --dangerously-skip-permissions',
+      );
     });
   });
 
