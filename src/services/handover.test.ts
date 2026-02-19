@@ -23,7 +23,7 @@ describe('ClaudeHandoverService', () => {
       expect(tmux.sendKeys).toHaveBeenCalledOnce();
       const [sessionId, command] = tmux.sendKeys.mock.calls[0];
       expect(sessionId).toBe('pr-42');
-      expect(command).toMatch(/^claude '/);
+      expect(command).toMatch(/^unset CLAUDECODE && claude '/);
       expect(command).toContain('PR #42');
       expect(command).toContain('Add login page');
     });
@@ -48,7 +48,7 @@ describe('ClaudeHandoverService', () => {
 
       expect(tmux.sendKeys).toHaveBeenCalledWith(
         'pr-42',
-        'claude --resume abc-123-def',
+        'unset CLAUDECODE && claude --resume abc-123-def',
       );
     });
 
@@ -57,7 +57,7 @@ describe('ClaudeHandoverService', () => {
 
       expect(tmux.sendKeys).toHaveBeenCalledWith(
         'pr-42',
-        'claude --resume abc-123-def --dangerously-skip-permissions',
+        'unset CLAUDECODE && claude --resume abc-123-def --dangerously-skip-permissions',
       );
     });
   });

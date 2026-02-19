@@ -76,7 +76,7 @@ export class ClaudeHandoverService {
     const flags = skipPermissions ? ' --dangerously-skip-permissions' : '';
     await this.tmux.sendKeys(
       tmuxSessionId,
-      `claude --resume ${claudeSessionId}${flags}`,
+      `unset CLAUDECODE && claude --resume ${claudeSessionId}${flags}`,
     );
   }
 
@@ -151,8 +151,8 @@ export class ClaudeHandoverService {
     ].filter(Boolean).join(' ');
 
     const claudeCommand = flags
-      ? `claude '${escaped}' ${flags}`
-      : `claude '${escaped}'`;
+      ? `unset CLAUDECODE && claude '${escaped}' ${flags}`
+      : `unset CLAUDECODE && claude '${escaped}'`;
 
     await this.tmux.sendKeys(sessionId, claudeCommand);
   }
