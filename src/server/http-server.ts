@@ -40,8 +40,8 @@ export function createHttpServer(
 
     // CORS for local development
     res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, mcp-session-id');
 
     if (req.method === 'OPTIONS') {
       res.writeHead(204);
@@ -78,24 +78,24 @@ export function createHttpServer(
     }
   });
 
+  const result = { server, port: options.port, dispose: () => { server.close(); } };
+
   server.listen(options.port, '127.0.0.1', () => {
-    logger.appendLine(`[http-server] Dashboard available at http://127.0.0.1:${options.port}`);
+    logger.appendLine(`[http-server] Dashboard available at http://127.0.0.1:${result.port}`);
   });
 
   server.on('error', (err: NodeJS.ErrnoException) => {
     if (err.code === 'EADDRINUSE') {
-      logger.appendLine(`[http-server] Port ${options.port} in use, trying ${options.port + 1}`);
-      server.listen(options.port + 1, '127.0.0.1');
+      const nextPort = result.port + 1;
+      logger.appendLine(`[http-server] Port ${result.port} in use, trying ${nextPort}`);
+      result.port = nextPort;
+      server.listen(nextPort, '127.0.0.1');
     } else {
       logger.appendLine(`[http-server] Server error: ${err.message}`);
     }
   });
 
-  return {
-    server,
-    port: options.port,
-    dispose: () => { server.close(); },
-  };
+  return result;
 }
 
 // ---------------------------------------------------------------------------
@@ -172,8 +172,12 @@ async function handleApi(
       const chunks: Buffer[] = [];
       req.on('data', (chunk: Buffer) => chunks.push(chunk));
       req.on('end', () => {
-        const raw = Buffer.concat(chunks).toString();
-        resolve(raw ? JSON.parse(raw) : {});
+        try {
+          const raw = Buffer.concat(chunks).toString();
+          resolve(raw ? JSON.parse(raw) : {});
+        } catch (err) {
+          reject(err);
+        }
       });
       req.on('error', reject);
     });

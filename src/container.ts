@@ -266,10 +266,6 @@ export class ServiceContainer implements vscode.Disposable {
     },
   };
 
-  async groupedPRs(): Promise<import('./interfaces').GroupedPRs> {
-    return this.prStatus.getGroupedPRs(this.currentUser);
-  }
-
   invalidateCaches(): void {
     void this.prCache.invalidate(this.currentUser);
     void this.sessionCache.invalidate();

@@ -181,20 +181,20 @@ export function createMcpServer(
 
     await mcp.connect(transport);
 
-    // Track the session once the transport assigns an ID
-    transport.onclose = () => {
-      if (transport.sessionId) {
-        sessions.delete(transport.sessionId);
-        logger.appendLine(`[mcp] Session ${transport.sessionId} disconnected`);
-      }
-    };
-
+    // Handle the initialize request — this assigns the session ID
     await transport.handleRequest(req, res);
 
-    // Store the session for future requests
+    // Store the session for future requests, set up cleanup
     if (transport.sessionId) {
       sessions.set(transport.sessionId, transport);
       logger.appendLine(`[mcp] New session ${transport.sessionId}`);
+
+      transport.onclose = () => {
+        if (transport.sessionId) {
+          sessions.delete(transport.sessionId);
+          logger.appendLine(`[mcp] Session ${transport.sessionId} disconnected`);
+        }
+      };
     }
   }
 
