@@ -1,11 +1,19 @@
 /**
- * PR Cache Service
+ * PRCacheService — per-user cache of open pull requests with
+ * stale-while-revalidate semantics.
  *
- * Maintains cached PR data per user and serves it quickly.
- * Invalidates cache on PR creation or after 60 minutes of inactivity.
+ * Behaviour:
+ *   - First call for a user blocks until data arrives (no stale data).
+ *   - Subsequent calls return cached data immediately.
+ *   - When the TTL expires the cached data is still returned, but a
+ *     background refresh is kicked off.
+ *   - `invalidate()` clears the cache and forces a blocking refresh.
+ *   - `lastInteraction` is updated on every `get()` so the cache stays
+ *     warm while the user is active.
  */
 
-import type { GitHubService, PullRequest } from './github.js';
+import type { GitHubService } from './github';
+import type { PullRequest } from '../interfaces';
 
 interface CacheEntry {
   data: PullRequest[];
@@ -13,70 +21,66 @@ interface CacheEntry {
   lastInteraction: number;
 }
 
+interface Logger {
+  appendLine(value: string): void;
+}
+
 export class PRCacheService {
   private cache = new Map<string, CacheEntry>();
   private updateInProgress = new Map<string, Promise<PullRequest[]>>();
-  private readonly ttlMs = 60 * 60 * 1000; // 60 minutes
+  private readonly ttlMs: number;
 
   constructor(
     private github: GitHubService,
-    private repoName: string
-  ) {}
+    private repoName: string,
+    ttlMinutes: number,
+    private logger: Logger,
+  ) {
+    this.ttlMs = ttlMinutes * 60 * 1_000;
+  }
 
   /**
-   * Get PRs from cache if fresh, otherwise trigger update and return stale data
-   * or wait for fresh data if no cache exists
+   * Return cached PRs for `username`.  When the cache is stale a background
+   * refresh is started; when no cache exists the call blocks.
    */
   async get(username: string): Promise<PullRequest[]> {
     const now = Date.now();
     const entry = this.cache.get(username);
 
-    // If cache exists and is fresh (within TTL since last interaction), return it
-    if (entry && (now - entry.lastInteraction) < this.ttlMs) {
-      // Update last interaction time
+    if (entry && now - entry.lastInteraction < this.ttlMs) {
       entry.lastInteraction = now;
       return entry.data;
     }
 
-    // If update is already in progress, wait for it
     if (this.updateInProgress.has(username)) {
       return this.updateInProgress.get(username)!;
     }
 
-    // If we have stale cache, return it and trigger background update
     if (entry) {
       this.triggerBackgroundUpdate(username);
+      entry.lastInteraction = now;
       return entry.data;
     }
 
-    // No cache exists, must wait for first load
     return this.refresh(username);
   }
 
   /**
-   * Force refresh the cache (blocks until complete)
+   * Force a blocking refresh.  If a refresh is already in progress the
+   * existing promise is returned (deduplication).
    */
   async refresh(username: string): Promise<PullRequest[]> {
-    // If already updating, wait for that
     if (this.updateInProgress.has(username)) {
       return this.updateInProgress.get(username)!;
     }
 
-    const updatePromise = this.github.listPRs(this.repoName, {
-      state: 'open',
-      author: username
-    });
-
-    this.updateInProgress.set(username, updatePromise);
+    const promise = this.fetchPRs(username);
+    this.updateInProgress.set(username, promise);
 
     try {
-      const data = await updatePromise;
+      const data = await promise;
       const now = Date.now();
-      this.cache.set(username, {
-        data,
-        timestamp: now,
-        lastInteraction: now
-      });
+      this.cache.set(username, { data, timestamp: now, lastInteraction: now });
       return data;
     } finally {
       this.updateInProgress.delete(username);
@@ -84,79 +88,49 @@ export class PRCacheService {
   }
 
   /**
-   * Trigger cache update in background without waiting
-   */
-  private triggerBackgroundUpdate(username: string): void {
-    if (this.updateInProgress.has(username)) {
-      return; // Already updating
-    }
-
-    const updatePromise = this.github.listPRs(this.repoName, {
-      state: 'open',
-      author: username
-    });
-
-    this.updateInProgress.set(username, updatePromise);
-
-    updatePromise
-      .then(data => {
-        const now = Date.now();
-        const existing = this.cache.get(username);
-        this.cache.set(username, {
-          data,
-          timestamp: now,
-          lastInteraction: existing?.lastInteraction || now
-        });
-      })
-      .catch(error => {
-        console.error(`Background PR cache update failed for ${username}:`, error);
-        // Keep stale cache on error
-      })
-      .finally(() => {
-        this.updateInProgress.delete(username);
-      });
-  }
-
-  /**
-   * Invalidate cache for a specific user and trigger immediate refresh
+   * Invalidate the cache for `username` and trigger a blocking refresh.
    */
   async invalidate(username: string): Promise<PullRequest[]> {
     this.cache.delete(username);
     return this.refresh(username);
   }
 
-  /**
-   * Invalidate all user caches
-   */
-  invalidateAll(): void {
-    this.cache.clear();
-  }
+  // -------------------------------------------------------------------
+  // Private helpers
+  // -------------------------------------------------------------------
 
-  /**
-   * Get cache age in milliseconds (null if no cache)
-   */
-  getCacheAge(username: string): number | null {
-    const entry = this.cache.get(username);
-    if (!entry) return null;
-    return Date.now() - entry.timestamp;
-  }
-
-  /**
-   * Check if cache is fresh for a user
-   */
-  isCacheFresh(username: string): boolean {
-    const entry = this.cache.get(username);
-    if (!entry) return false;
-    return (Date.now() - entry.lastInteraction) < this.ttlMs;
-  }
-
-  /**
-   * Mark user interaction (resets TTL timer)
-   */
-  markInteraction(username: string): void {
-    const entry = this.cache.get(username);
-    if (entry) {
-      entry.lastInteraction = Date.now();
+  private triggerBackgroundUpdate(username: string): void {
+    if (this.updateInProgress.has(username)) {
+      return;
     }
+
+    const promise = this.fetchPRs(username);
+    this.updateInProgress.set(username, promise);
+
+    promise
+      .then((data) => {
+        const now = Date.now();
+        const existing = this.cache.get(username);
+        this.cache.set(username, {
+          data,
+          timestamp: now,
+          lastInteraction: existing?.lastInteraction ?? now,
+        });
+      })
+      .catch((err) => {
+        this.logger.appendLine(
+          `[pr-cache] Background refresh failed for ${username}: ${String(err)}`,
+        );
+      })
+      .finally(() => {
+        this.updateInProgress.delete(username);
+      });
+  }
+
+  private async fetchPRs(username: string): Promise<PullRequest[]> {
+    return this.github.listPRs(this.repoName, {
+      state: 'open',
+      author: username,
+    });
   }
 }

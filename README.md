@@ -1,19 +1,13 @@
-# MainframeHub (mfh)
+# MainframeHub
 
-A **tmux-centric** CLI tool for managing PR workflows.
+A **VS Code extension** for managing tmux-based PR workflows with Claude Code.
 
 ## Philosophy
 
 Sessions are the source of truth. PRs are discovered from git repos in session working directories.
 
-Instead of:
 ```
-GitHub PR → Try to match to local state → Complex sync
-```
-
-We do:
-```
-Tmux sessions → Git repos → Derive PRs from GitHub
+Tmux sessions -> Git repos -> Derive PRs from GitHub
 ```
 
 This is elegant because:
@@ -24,60 +18,62 @@ This is elegant because:
 
 ## Installation
 
-```bash
-cd mainframehub
-npm install
-npm run build
-npm link  # Makes 'mfh' available globally
-```
+1. Open the repo in VS Code on a remote Linux server (via SSH Remote)
+2. Run `npm install && npm run compile`
+3. Press F5 to launch the Extension Development Host
+4. Or: `npm run package` to create a `.vsix` and install it
 
 ## Configuration
 
-Create `mfh.config.json` in your project or `~/.mfh.config.json`:
+On first launch, run **MFH: Setup Wizard** from the command palette. It asks for your GitHub repo URL and auto-detects everything else.
 
-```json
-{
-  "repo": "https://github.com/owner/repo",
-  "repoName": "owner/repo",
-  "clonesDir": "./clones",
-  "baseBranch": "main",
-  "sessionPrefix": "mfh-",
-  "guidelines": {
-    "branchFormat": "prefix/type/description",
-    "commitFormat": "type: description"
-  }
-}
-```
+Settings are stored in VS Code's `settings.json` under the `mfh.*` namespace.
 
-## Interfaces
+## Usage
 
-### Web UI
+### VS Code Dashboard
 
-Browser-based interface accessible from anywhere.
+Open the dashboard via:
+- Click the **MainframeHub** status bar item
+- Run **MFH: Open Dashboard** from the command palette
+- Click the MainframeHub icon in the Activity Bar
+
+The dashboard has two tabs:
+- **My PRs**: Grouped PR cards (active sessions, has clone, not set up, closed) with contextual action buttons
+- **New PR**: Form to create a new PR with Claude Code
+
+### Browser Access
+
+The extension starts a lightweight HTTP server on port 3000. Open `http://127.0.0.1:3000` in any browser to access the dashboard.
+
+Or run **MFH: Open Dashboard in Browser** from the command palette.
+
+Note: Terminal and folder operations require VS Code.
+
+### Tree View
+
+The sidebar tree view shows PRs grouped by status with inline actions and context menus.
+
+### Key Commands
+
+| Command | Shortcut | Description |
+|---------|----------|-------------|
+| MFH: Open PR | `Cmd+Shift+M` | Quick pick PR switcher |
+| MFH: Create New PR | `Cmd+Shift+N` | Create PR with Claude metadata |
+| MFH: Fix This Error | `Cmd+Shift+F` | Send error to Claude session |
+
+## Development
 
 ```bash
-npm run web
-# Open http://localhost:3000
+npm install
+npm run compile    # Build extension + webview bundles
+npm run lint       # Type check
+npm test           # Run vitest tests
+npm run watch      # Watch mode for development
 ```
 
-**Features:**
-- 🌐 Remote access
-- 📱 Works in any browser
-- 👥 Multi-user support
-- 🔒 GitHub token auth
+## Requirements
 
-## Testing
-
-```bash
-npm test
-```
-
-Tests use:
-- **Real tmux sessions** (created and destroyed)
-- **Real git clones** (in /tmp)
-- **Real file system** operations
-- **Mocked GitHub writes** only
-
-Tests are comprehensive but fast because only GitHub API calls are mocked.
-- Add tab completion
-- Add session templates
+- VS Code ^1.93.0
+- tmux, git, claude CLI on PATH
+- GitHub authentication via VS Code
